@@ -6,6 +6,8 @@ on:
   schedule:
     - cron: '7,22,37,52 4-9 * * 1-5'
     - cron: '7 10 * * 1-5'
+    - cron: '43 * * * *'
+    - cron: '23 12 * * *'
 permissions:
   contents: read
   issues: write
@@ -32,7 +34,12 @@ jobs:
       - name: Rehearsal health only; trade alerts disabled
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python rehearsal.py --publish-health
+        run: python rehearsal.py --publish-health --paper-followup
+      - name: Daily historical backtest and frozen shadow learning
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 12 * * *'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python research.py --publish
       - uses: actions/cache/save@v4
         if: always()
         with:

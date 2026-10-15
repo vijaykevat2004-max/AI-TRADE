@@ -80,7 +80,7 @@ def levels(prior, daily, config):
             result.append(dict(kind='EQUAL_'+side,side=side,price=pool[-1]['price']))
     today=[b for b in prior if b.t.astimezone(IST).date()==prior[-1].t.astimezone(IST).date()] if prior else []
     opening=[b for b in today if '09:15'<=b.t.astimezone(IST).strftime('%H:%M')<'09:30']
-    if len(opening)==3:
+    if len(opening)==15//config.get('bar_minutes',5):
         result.extend([dict(kind='ORH',side='HIGH',price=max(b.h for b in opening)),dict(kind='ORL',side='LOW',price=min(b.l for b in opening))])
     return result
 
@@ -103,14 +103,15 @@ def evaluate(symbol: str, as_of: datetime, confirmed_bars: dict, config: dict) -
         d.update(status=status,reason_codes=[reason]);return d
     if as_of.tzinfo is None: return reject('UNAVAILABLE','NAIVE_AS_OF')
     bars=confirmed_bars.get('5m',[])
+    minutes=config.get('bar_minutes',5)
     daily=[b for b in confirmed_bars.get('1d',[]) if b.t.astimezone(IST).date()<as_of.astimezone(IST).date()]
     try:
-        validate(bars,5,as_of-timedelta(seconds=config['finalization_seconds']))
+        validate(bars,minutes,as_of-timedelta(seconds=config['finalization_seconds']))
         validate(daily,1440,as_of)
     except ValueError as e: return reject('UNAVAILABLE',str(e))
     if len(bars)<20 or len(daily)<20: return reject('WARMUP','INSUFFICIENT_HISTORY')
-    b=bars[-1]; close_time=b.t+timedelta(minutes=5)
-    structure=aggregate15(bars)
+    b=bars[-1]; close_time=b.t+timedelta(minutes=minutes)
+    structure=aggregate15(bars) if minutes==5 else bars
     if len(structure)<3:return reject('WARMUP','INSUFFICIENT_15M_STRUCTURE')
     d['structure_15m_close']=(structure[-1].t+timedelta(minutes=15)).isoformat()
     d['structure_15m_pivots']=pivots(structure,config['pivot_left'],config['pivot_right'])[-4:]
@@ -157,7 +158,7 @@ def evaluate(symbol: str, as_of: datetime, confirmed_bars: dict, config: dict) -
             if not values: return reject('NO_SETUP',reason)
             evidence=dict(bars=[asdict(x) for x in bars],daily=[asdict(x) for x in daily],config=config,raid_index=i,reclaim_index=reclaim,confirmation_index=first)
             key=[config['strategy_version'],symbol,str(local.date()),ref['kind'],raid.t.isoformat(),b.t.isoformat(),side]
-            d.update(values,id=digest(key),decision=side,status='SIGNAL',reason_codes=['SWEEP_RECLAIM',confirmation(first),'PROPOSED_NSE'],exchange='NSE',session_date_ist=str(local.date()),market_state='OPEN',data_provider='Yahoo/yfinance best effort',timeframe='5m',sweep_extreme=observed,sweep_bar_close_utc=(raid.t+timedelta(minutes=5)).astimezone(ZoneInfo('UTC')).isoformat(),confirmation_type=confirmation(first),confirmation_bar_ids=[b.t.isoformat()],signal_time_utc=as_of.astimezone(ZoneInfo('UTC')).isoformat(),signal_time_ist=as_of.astimezone(IST).isoformat(),bar_close_time=close_time.isoformat(),earliest_actionable_time=as_of.isoformat(),quality_flags=['DELAYED_RESEARCH','TICK_METADATA_UNVERIFIED'],chart_link='https://www.tradingview.com/chart/mWisj3X4/?symbol=NSE%3A'+symbol.replace('&','%26').replace('-','_')+'&interval=5',evidence=evidence,evidence_ref=digest(evidence),config_sha256=digest(config))
+            d.update(values,id=digest(key),decision=side,status='SIGNAL',reason_codes=['SWEEP_RECLAIM',confirmation(first),'PROPOSED_NSE'],exchange='NSE',session_date_ist=str(local.date()),market_state='OPEN',data_provider='Yahoo/yfinance best effort',timeframe=str(minutes)+'m',sweep_extreme=observed,sweep_bar_close_utc=(raid.t+timedelta(minutes=minutes)).astimezone(ZoneInfo('UTC')).isoformat(),confirmation_type=confirmation(first),confirmation_bar_ids=[b.t.isoformat()],signal_time_utc=as_of.astimezone(ZoneInfo('UTC')).isoformat(),signal_time_ist=as_of.astimezone(IST).isoformat(),bar_close_time=close_time.isoformat(),earliest_actionable_time=as_of.isoformat(),quality_flags=['DELAYED_RESEARCH','TICK_METADATA_UNVERIFIED']+(['DEGRADED_15M_NOT_5M_EQUIVALENT'] if minutes==15 else []),chart_link='https://www.tradingview.com/chart/mWisj3X4/?symbol=NSE%3A'+symbol.replace('&','%26').replace('-','_')+'&interval='+str(minutes),evidence=evidence,evidence_ref=digest(evidence),config_sha256=digest(config))
             return d
     if d['status']=='WARMUP': return reject('NO_SETUP','NO_CONFIRMED_SWEEP')
     return d

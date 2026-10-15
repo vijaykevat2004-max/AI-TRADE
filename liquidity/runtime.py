@@ -31,6 +31,7 @@ class Store:
             for name,definition in [('next_try','TEXT'),('status',"TEXT DEFAULT 'PENDING'")]:
                 if name not in columns:db.execute('ALTER TABLE outbox ADD COLUMN '+name+' '+definition)
             db.execute('CREATE TABLE IF NOT EXISTS deliveries(id INTEGER PRIMARY KEY, event_id TEXT, at TEXT, outcome TEXT, detail TEXT)')
+            db.execute('CREATE TABLE IF NOT EXISTS paper(id TEXT PRIMARY KEY,symbol TEXT NOT NULL,record TEXT NOT NULL)')
     @contextmanager
     def connect(self):
         db=sqlite3.connect(self.path,timeout=20)
@@ -129,16 +130,20 @@ class Supervisor:
                 decision=evaluate(symbol,now,bars,cfg)
                 # Same prefix may be evaluated again, but a signal already persisted is not resent.
                 base.update(decision,watermark=decision.get('last_bar_close'),failures=0)
+                from .paper import register,update_symbol
+                if decision.get('status')=='SIGNAL':register(self.store,decision)
+                update_symbol(self.store,symbol,bars['5m'],now,cfg)
             except Exception as e:
                 count=base['failures']+1
-                base.update(status='UNAVAILABLE',failures=count,reason_codes=[str(e)[:160]],retry_at=(now+timedelta(seconds=min(900,30*2**min(count,5)))).isoformat())
+                base.update(status='UNAVAILABLE',decision='NO_TRADE',failures=count,reason_codes=[str(e)[:160]],retry_at=(now+timedelta(seconds=min(900,30*2**min(count,5)))).isoformat())
             return base
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             futures=[pool.submit(agent,symbol) for symbol in self.symbols]
             for future in concurrent.futures.as_completed(futures):self.store.save(future.result())
         states=self.store.states()
+        from .paper import summary,records
         counts={s:sum(x['status']==s for x in states.values()) for s in sorted({x['status'] for x in states.values()})}
-        return dict(collected_at=now.isoformat(),strategy_id=cfg['strategy_id'],version=cfg['strategy_version'],status=market if market!='OPEN' else 'REHEARSAL',requested=50,evaluated=sum(x.get('watermark') is not None for x in states.values()),production_ready=False,source='Yahoo/yfinance best effort; latency measured per symbol, not realtime',execution_authority=False,counts=counts,agents=list(states.values()),signals=[x for x in states.values() if x.get('decision') in ('BUY','SELL')],symbols=self.symbols)
+        return dict(collected_at=now.isoformat(),strategy_id=cfg['strategy_id'],version=cfg['strategy_version'],status=market if market!='OPEN' else 'REHEARSAL',requested=50,evaluated=sum(x.get('watermark') is not None for x in states.values()),production_ready=False,source='Yahoo/yfinance best effort; latency measured per symbol, not realtime',execution_authority=False,counts=counts,agents=list(states.values()),signals=[x for x in states.values() if x.get('decision') in ('BUY','SELL')],symbols=self.symbols,paper_summary=summary(self.store),paper_trades=records(self.store)[-25:])
 
 def load_calendar(now):
     # Same official endpoint as existing project; unknown must fail closed.
