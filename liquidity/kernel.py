@@ -58,8 +58,8 @@ def bias(daily, config):
 def fvg(bars, minimum):
     if len(bars)<3: return None
     a,_,c=bars[-3:]
-    if c.l-a.h>=minimum: return dict(side='BUY',zone=[a.h,c.l],kind='FVG')
-    if a.l-c.h>=minimum: return dict(side='SELL',zone=[c.h,a.l],kind='FVG')
+    if c.l>a.h and c.l-a.h>=minimum: return dict(side='BUY',zone=[a.h,c.l],kind='FVG')
+    if a.l>c.h and a.l-c.h>=minimum: return dict(side='SELL',zone=[c.h,a.l],kind='FVG')
     return None
 
 def aggregate15(bars):
@@ -131,9 +131,10 @@ def evaluate(symbol: str, as_of: datetime, confirmed_bars: dict, config: dict) -
             if ref['side']!=('LOW' if side=='BUY' else 'HIGH'): continue
             extreme=raid.l if side=='BUY' else raid.h
             if sign*(ref['price']-extreme)<config['sweep_buffer_ticks']*config['tick_size']: continue
-            d.update(status='SWEEP_CANDIDATE',liquidity_ref=ref['kind'],liquidity_price=ref['price'])
+            d.update(status='SWEEP_CANDIDATE',reason_codes=['SWEEP_WITHOUT_RECLAIM'],liquidity_ref=ref['kind'],liquidity_price=ref['price'])
             reclaim=next((j for j in range(i,min(i+config['max_reclaim_bars']+1,len(bars))) if sign*(bars[j].c-ref['price'])>0),None)
             if reclaim is None: continue
+            d.update(status='WAIT_CONFIRM',reason_codes=['RECLAIM_WAITING_CONFIRMATION'])
             if len(bars)-1-reclaim>config['max_confirmation_bars']:
                 d.update(status='EXPIRED',reason_codes=['CONFIRMATION_TIMEOUT']);continue
             if reclaim>=len(bars)-1:

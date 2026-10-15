@@ -1,5 +1,5 @@
 //@version=6
-indicator("NSE Liquidity v0.1 — VISUAL REHEARSAL", overlay=true, max_lines_count=100, max_boxes_count=100, max_labels_count=100)
+indicator("NSE Liquidity v0.1 - VISUAL REHEARSAL", overlay=true, max_lines_count=100, max_boxes_count=100, max_labels_count=100)
 // SOURCE: TradeZella daily bias, raid and confirmation concept.
 // PROPOSED_NSE/EXPERIMENTAL: every formula and threshold below.
 // NOT backend parity certified. No orders, alerts, external evidence import or cloud worker.
@@ -98,6 +98,6 @@ plotshape(swept,title="Raid candidate",style=shape.diamond,location=location.abo
 plotshape(mss,title="MSS",style=shape.circle,location=location.belowbar,color=color.purple,size=size.tiny)
 var table status=table.new(position.top_right,1,3)
 if barstate.islast
-    table.cell(status,0,0,"VISUAL REHEARSAL / NOT PARITY CERTIFIED")
-    table.cell(status,0,1,"Daily bias "+(bias==1?"BULL":bias==-1?"BEAR":"NEUTRAL"))
-    table.cell(status,0,2,timeframe.period=="5"?"5m native feed • no cloud alerts":"Use 5-minute chart")
+    table.cell(status,0,0,"VISUAL REHEARSAL / NOT PARITY CERTIFIED",text_color=color.white,bgcolor=color.black)
+    table.cell(status,0,1,"Daily bias "+(bias==1?"BULL":bias==-1?"BEAR":"NEUTRAL"),text_color=color.white,bgcolor=color.black)
+    table.cell(status,0,2,timeframe.period=="5"?"5m native feed / no cloud alerts":"Use 5-minute chart",text_color=color.white,bgcolor=color.black)

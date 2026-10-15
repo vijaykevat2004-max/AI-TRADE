@@ -9,3 +9,5 @@ Existing frontend is a separate private Sites source checkout ../nifty-command-c
 Previously observed TradingView account vijayxraw Basic: two chart indicators, zero technical alerts, delayed NSE feed. Saved layout https://www.tradingview.com/chart/mWisj3X4/ . Companion v2 is legacy momentum. Two saved 25-stock reconstructed scanners were deployed earlier; their full source has NOT been re-audited in this replacement. Do not modify those scripts or claim new Pine compilation until examined and actually compiled.
 
 Production replacement gates: permitted reliable intraday feed; validated calendar; fifty-symbol market-open rehearsal; causal parity and OOS replay; actual always-on hosting. Not satisfied at audit. New code defaults to rehearsal, never execution. No new service purchase or credentials required for local replay.
+
+Post-audit changes: both original 25-stock saved Pine sources fully read (one dynamic request per symbol, 25 contexts each, 1.2x volume threshold). They remain untouched saved legacy copies. New visual rehearsal compiled on native TradingView, legacy v2 overlay retired, SMA and drawings preserved. This does not satisfy full strategy parity.

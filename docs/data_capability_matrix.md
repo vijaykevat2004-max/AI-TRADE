@@ -9,4 +9,4 @@
 |GitHub Actions|Existing scheduled CLI|Delayed schedules, no 24x7 process guarantee; public repo issue data|
 |Private Sites dashboard|Existing deployed frontend, no schedules|Not proof of scanner uptime|
 
-Coverage means all 50 status rows, separately reporting usable bars and reasons; never 50 successful evaluations merely because 50 were attempted. 5m is primary, completed 15m groups are derived only from three contiguous 5m bars. Daily bars must precede session date. Corporate action in used history blocks rather than mixing adjusted and unadjusted levels. Production realtime is BLOCKED.
+Coverage means all 50 status rows, separately reporting usable bars and reasons; never 50 successful evaluations merely because 50 were attempted. 5m is primary, completed 15m groups are derived only from three contiguous 5m bars. Daily bars must precede session date. Both streams reset after the most recent corporate action; insufficient post-action warmup blocks rather than mixing pre/post-action levels. Production realtime is BLOCKED.

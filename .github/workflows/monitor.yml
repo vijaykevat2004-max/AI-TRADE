@@ -9,7 +9,6 @@ on:
 permissions:
   contents: read
   issues: write
-  actions: write
 concurrency:
   group: nifty-personal-monitor
   cancel-in-progress: false
