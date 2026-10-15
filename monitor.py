@@ -139,6 +139,22 @@ def evaluate(bars, index):
     return dict(direction=direction, reference_close=round(b['c'], 2), stop=round(b['c']-sign*risk, 2), target_2R=round(b['c']+sign*2*risk, 2), atr14_sma=round(atr, 3), volume_ratio=round(volume_ratio, 2), bar_open=b['t'].isoformat(), bar_close=(b['t']+timedelta(minutes=15)).isoformat())
 
 
+def attach_evidence(signal, bars, index, collected_at):
+    prior = bars[:index]
+    start = max(0, index-40)
+    window = bars[start:index+1]
+    evidence = dict(source='Yahoo via yfinance; unadjusted; personal research', collected_at=collected_at.isoformat(),
+        preceding_high20=max(b['h'] for b in prior[-20:]), preceding_low20=min(b['l'] for b in prior[-20:]),
+        preceding_volume_mean20=sum(b['v'] for b in prior[-20:])/20,
+        ema20=ema([b['c'] for b in bars[:index+1]],20), ema50=ema([b['c'] for b in bars[:index+1]],50),
+        initial_ema20=ema([b['c'] for b in bars[:start]],20) if start else None,
+        initial_ema50=ema([b['c'] for b in bars[:start]],50) if start else None,
+        bars=[dict(t=int(b['t'].timestamp()),o=b['o'],h=b['h'],l=b['l'],c=b['c'],v=b['v']) for b in window])
+    canonical = json.dumps(evidence, sort_keys=True, separators=(',',':'), allow_nan=False)
+    signal.update(evidence=evidence, evidence_sha256=hashlib.sha256(canonical.encode()).hexdigest(), evidence_canonical=canonical)
+    return signal
+
+
 class GitHub:
     def __init__(self):
         self.repo = os.environ['GITHUB_REPOSITORY']
@@ -164,26 +180,35 @@ class GitHub:
     def health(self, report, issues):
         title = '[NIFTY monitor] Health and coverage'
         item = next((i for i in issues if i['title'] == title), None)
-        summary = dict(report, signals_count=len(report['signals']), signals=report['signals'][-10:])
+        previous = (item or {}).get('body') or ''
+        try:
+            previous_report = json.loads(re.search(r'```json\s*([\s\S]*?)```',previous).group(1))
+        except Exception:
+            previous_report = {}
+        market_keys = ['collected_at','status','requested','evaluated','failures','bars','symbols','calendar_status','universe_sha256']
+        last_market = {k:report[k] for k in market_keys if k in report} if 'symbols' in report else previous_report.get('last_market_scan')
+        if not last_market and 'symbols' in previous_report:
+            last_market = {k:previous_report[k] for k in market_keys if k in previous_report}
+        light_signals = [{k:v for k,v in s.items() if k not in {'evidence','evidence_canonical'}} for s in report['signals'][-10:]]
+        summary = dict(report, signals_count=len(report['signals']), signals=light_signals, last_market_scan=last_market)
         body = 'Personal research only; execution_authority=false. Full report is in Actions artifacts.\n\n```json\n'+json.dumps(summary, indent=2)+'\n```'
         if item:
             self.api('/issues/'+str(item['number']), dict(body=body), 'PATCH')
         else:
             self.create(title, body)
         # Only notify on a change of health state, not every poll.
-        previous = (item or {}).get('body') or ''
         state = report['status']
         if item and f'"status": "{state}"' not in previous:
             self.api('/issues/'+str(item['number'])+'/comments', dict(body='Health changed to **'+state+'**. See issue body for coverage and failures.'))
 
 
-def scan(now, publish=False):
+def scan(now, publish=False, audit=False):
     started = time.monotonic()
-    report = dict(collected_at=now.isoformat(), source='Yahoo via yfinance; keyless, best effort, personal use', execution_authority=False, status='STARTING', requested=50, evaluated=0, failures={}, signals=[], bars={})
+    report = dict(collected_at=now.isoformat(), source='Yahoo via yfinance; keyless, best effort, personal use', execution_authority=False, audit=audit, status='STARTING', requested=50, evaluated=0, failures={}, signals=[], bars={})
     gh = GitHub() if publish else None
     issues = gh.issues() if gh else []
     try:
-        if now.weekday() >= 5 or not (570 <= now.hour*60+now.minute <= 985):
+        if not audit and (now.weekday() >= 5 or not (570 <= now.hour*60+now.minute <= 985)):
             report['status'] = 'OUTSIDE_POLL_WINDOW'
             return report
         report['calendar_status'], report['calendar_source'] = holiday_status(now)
@@ -251,6 +276,7 @@ def scan(now, publish=False):
                     signal = evaluate(bars, i)
                     if signal:
                         signal.update(symbol=symbol, strategy=STRATEGY)
+                        attach_evidence(signal,bars,i,now)
                         signal['id'] = hashlib.sha256(f"{STRATEGY}|{symbol}|{signal['bar_open']}|{signal['direction']}".encode()).hexdigest()[:24]
                         signal['age_minutes'] = round((now - datetime.fromisoformat(signal['bar_close'])).total_seconds()/60, 1)
                         signal['expired'] = signal['age_minutes'] > 45
@@ -265,7 +291,7 @@ def scan(now, publish=False):
                 signal['age_minutes'] += round((time.monotonic()-started)/60, 1)
                 signal['expired'] = signal['age_minutes'] > 45
                 title = '[NIFTY signal] '+signal['id']
-                if not signal['expired'] and title not in ledger:
+                if not audit and not signal['expired'] and title not in ledger:
                     body = '**RESEARCH ONLY — delayed reference levels, not an executable entry. No trades placed.**\n\n```json\n'+json.dumps(signal, indent=2)+'\n```\n\nPartial coverage: '+str(report['evaluated'])+'/50. Yahoo feed and runner may be delayed. Check current prices independently. SHORT is a bearish research signal, not an overnight cash short recommendation.'
                     gh.create(title, body)
                     ledger.add(title)
@@ -285,10 +311,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--publish', action='store_true', help='Write GitHub issues using the automatically provided workflow token')
     parser.add_argument('--now', help='ISO timestamp for read-only replay; cannot publish')
+    parser.add_argument('--audit', action='store_true', help='Inspect current-date source after hours; never publish signal alerts')
     args = parser.parse_args()
     if args.now and args.publish:
         parser.error('Replay cannot publish')
     now = datetime.fromisoformat(args.now).astimezone(IST) if args.now else datetime.now(IST)
-    result = scan(now, args.publish)
+    result = scan(now, args.publish, args.audit)
     print(json.dumps(result, indent=2))
     raise SystemExit(1 if result['status'] in {'FAILED', 'DATA_UNAVAILABLE', 'PARTIAL_COVERAGE'} else 0)

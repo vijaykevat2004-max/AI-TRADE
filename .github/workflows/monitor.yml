@@ -1,6 +1,12 @@
 name: NIFTY 50 personal research monitor
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Normal scan, or after-hours source audit without signal alerts'
+        type: choice
+        default: scan
+        options: [scan, audit]
   push:
     paths: ['monitor.py', 'test_monitor.py', 'requirements.txt', '.github/workflows/monitor.yml']
   schedule:
@@ -28,7 +34,7 @@ jobs:
       - name: Scan and notify
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python monitor.py --publish
+        run: python monitor.py --publish ${{ github.event.inputs.mode == 'audit' && '--audit' || '' }}
       - name: Keep coverage report
         if: always()
         uses: actions/upload-artifact@v4

@@ -20,6 +20,21 @@ def fixture():
 
 
 class MonitorTests(unittest.TestCase):
+    def test_frozen_evidence_hash_and_thresholds(self):
+        import hashlib
+        import json
+        bars=fixture()
+        bars[-1].update(o=110,h=120,l=110,c=119,v=200)
+        signal=m.evaluate(bars,len(bars)-1)
+        m.attach_evidence(signal,bars,len(bars)-1,bars[-1]['t']+timedelta(minutes=20))
+        self.assertEqual(hashlib.sha256(signal['evidence_canonical'].encode()).hexdigest(),signal['evidence_sha256'])
+        evidence=json.loads(signal['evidence_canonical'])
+        self.assertEqual(len(evidence['bars']),41)
+        self.assertGreater(signal['reference_close'],evidence['preceding_high20'])
+        self.assertEqual(evidence['bars'][-1]['v'],200)
+        bars[-1]['c']=999
+        self.assertEqual(evidence['bars'][-1]['c'],119)
+
     def test_5m_recovery_requires_three_real_bars(self):
         import pandas as pd
         start = datetime(2026,10,15,9,15,tzinfo=m.IST)

@@ -1,0 +1,33 @@
+//@version=6
+indicator("NIFTY Research Companion v2", overlay=true, max_lines_count=300, max_labels_count=100)
+// Native chart calculations use TradingView's own feed. They are not imported Yahoo signals.
+// Research reference levels only. No orders or automatic trading.
+showLevels = input.bool(true, "Show latest native setup levels")
+keepBars = input.int(20, "Reference line length", minval=1, maxval=100)
+fast = ta.ema(close, 20)
+slow = ta.ema(close, 50)
+high20 = ta.highest(high[1], 20)
+low20 = ta.lowest(low[1], 20)
+volumeMean = ta.sma(volume[1], 20)
+atr = ta.sma(ta.tr(true), 14)
+regular = not na(time(timeframe.period, "0915-1530:23456", "Asia/Kolkata"))
+valid = timeframe.isminutes and timeframe.multiplier == 15 and regular and barstate.isconfirmed and bar_index >= 150 and volume > 0 and volumeMean > 0
+longSignal = valid and close > high20 and fast > slow and close > fast and volume >= 1.5 * volumeMean
+shortSignal = valid and close < low20 and fast < slow and close < fast and volume >= 1.5 * volumeMean
+plot(fast, "EMA20", color=color.new(color.teal, 25))
+plot(slow, "EMA50", color=color.new(color.orange, 30))
+plotshape(longSignal, title="Native LONG research", style=shape.triangleup, location=location.belowbar, color=color.lime, text="L", size=size.tiny)
+plotshape(shortSignal, title="Native SHORT research", style=shape.triangledown, location=location.abovebar, color=color.red, text="S", size=size.tiny)
+if (longSignal or shortSignal) and showLevels
+    sign = longSignal ? 1 : -1
+    risk = math.max(1.5 * atr, longSignal ? close-low : high-close)
+    stop = close-sign*risk
+    target = close+sign*2*risk
+    line.new(bar_index, close, bar_index+keepBars, close, color=color.yellow, style=line.style_dashed)
+    line.new(bar_index, stop, bar_index+keepBars, stop, color=color.red)
+    line.new(bar_index, target, bar_index+keepBars, target, color=color.lime)
+    label.new(bar_index, longSignal ? low : high, (longSignal ? "LONG" : "SHORT") + " RESEARCH\nRef " + str.tostring(close, format.mintick) + "\nStop " + str.tostring(stop, format.mintick) + "\n2R " + str.tostring(target, format.mintick), style=longSignal ? label.style_label_up : label.style_label_down, color=color.new(longSignal ? color.green : color.red, 20), textcolor=color.white, size=size.small)
+var table status = table.new(position.top_right, 1, 2)
+if barstate.islast
+    table.cell(status, 0, 0, "RESEARCH ONLY · NO ORDERS", bgcolor=color.new(color.black, 15), text_color=color.white)
+    table.cell(status, 0, 1, timeframe.isminutes and timeframe.multiplier == 15 ? "TradingView feed · not Yahoo proof" : "Select 15-minute timeframe", bgcolor=color.new(color.black, 15), text_color=color.orange)

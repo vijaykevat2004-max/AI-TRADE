@@ -1,5 +1,7 @@
 # Free personal NIFTY 50 monitor
 
+Private interface: https://nifty-signal-command-centre.vijaykevat2004.chatgpt.site . See SYSTEM-DESIGN.md for the precise component boundaries and remaining TradingView acceptance checks. The dashboard is not a claim that all TradingView tools are cloud-controlled.
+
 Signal-only research. `execution_authority=false`. No broker, orders, TradingView alerts, paid service, market-data key or user-generated GitHub token is used.
 
 ## What runs
