@@ -79,9 +79,33 @@ def clean_bars(frame, now):
         values = [float(row[k]) for k in ['Open', 'High', 'Low', 'Close', 'Volume']]
         o, h, l, c, v = values
         if not all(math.isfinite(x) for x in values) or min(o, h, l, c) <= 0 or v <= 0 or l > min(o, c) or h < max(o, c) or l > h:
-            raise ValueError('INVALID_OHLCV')
+            raise ValueError(f'INVALID_OHLCV at {t.isoformat()} values={values}')
         out.append(dict(t=t, o=o, h=h, l=l, c=c, v=v))
     return out
+
+
+def recover_5m(ticker, now):
+    """Aggregate actual three 5m candles; never fill prices or invent volume."""
+    frame = ticker.history(period='1mo', interval='5m', auto_adjust=False, actions=True, raise_errors=True, timeout=20)
+    if frame.empty or frame.index.tz is None or frame.index.has_duplicates:
+        raise ValueError('RECOVERY_EMPTY_OR_INVALID_INDEX')
+    frame = frame.sort_index().copy()
+    frame.index = frame.index.tz_convert(IST)
+    minute = frame.index.hour*60+frame.index.minute
+    frame = frame[(minute >= 555) & (minute < 930)]
+    groups = frame.resample('15min')
+    result = groups.agg({'Open':'first','High':'max','Low':'min','Close':'last','Volume':'sum'})
+    counts = groups['Close'].count()
+    result = result[counts > 0]
+    for stamp in result.index[-250:]:
+        if stamp.to_pydatetime()+timedelta(minutes=15, seconds=90) <= now:
+            sub = frame.loc[stamp:stamp+timedelta(minutes=10)]
+            if len(sub) != 3 or list(sub.index.minute % 15) != [0,5,10] or sub[['Open','High','Low','Close','Volume']].isna().any().any() or (sub.Volume <= 0).any() or (sub.Low > sub[['Open','Close']].min(axis=1)).any() or (sub.High < sub[['Open','Close']].max(axis=1)).any():
+                raise ValueError('RECOVERY_INCOMPLETE_5M_GROUP at '+stamp.isoformat())
+    for col in ['Stock Splits','Dividends']:
+        if col in frame and (frame[col].fillna(0) != 0).any():
+            raise ValueError('RECOVERY_CORPORATE_ACTION')
+    return result
 
 
 def ema(values, span):
@@ -154,6 +178,7 @@ class GitHub:
 
 
 def scan(now, publish=False):
+    started = time.monotonic()
     report = dict(collected_at=now.isoformat(), source='Yahoo via yfinance; keyless, best effort, personal use', execution_authority=False, status='STARTING', requested=50, evaluated=0, failures={}, signals=[], bars={})
     gh = GitHub() if publish else None
     issues = gh.issues() if gh else []
@@ -170,18 +195,32 @@ def scan(now, publish=False):
         symbols, digest = universe()
         report.update(universe_source=UNIVERSE_URL, universe_sha256=digest, symbols=symbols)
         import yfinance as yf
+        report['recovered_from_5m'] = []
         for symbol in symbols:
             try:
                 frame = None
                 for attempt in range(2):
                     try:
-                        frame = yf.Ticker(symbol+'.NS').history(period='1mo', interval='15m', auto_adjust=False, actions=True, raise_errors=True, timeout=20)
+                        ticker = yf.Ticker(symbol+'.NS')
+                        frame = ticker.history(period='1mo', interval='15m', auto_adjust=False, actions=True, raise_errors=True, timeout=20)
                         break
                     except Exception:
                         if attempt:
                             raise
                         time.sleep(2)
-                bars = clean_bars(frame, now)
+                try:
+                    bars = clean_bars(frame, now)
+                    recent = bars[-175:]
+                    incomplete = any(a['t'].date() == b['t'].date() and b['t']-a['t'] != timedelta(minutes=15) for a,b in zip(recent,recent[1:]))
+                    for day in sorted({b['t'].date() for b in recent})[1:]:
+                        group = [b for b in recent if b['t'].date() == day]
+                        incomplete |= (group[0]['t'].hour,group[0]['t'].minute) != (9,15) or (day != now.date() and len(group) != 25)
+                    if incomplete:
+                        raise ValueError('INCOMPLETE_15M_HISTORY')
+                except ValueError:
+                    frame = recover_5m(ticker, now)
+                    bars = clean_bars(frame, now)
+                    report['recovered_from_5m'].append(symbol)
                 if len(bars) < 151:
                     raise ValueError('INSUFFICIENT_HISTORY')
                 today = [i for i, b in enumerate(bars) if b['t'].date() == now.date()]
@@ -223,6 +262,8 @@ def scan(now, publish=False):
         if gh:
             ledger = {i['title'] for i in issues}
             for signal in report['signals']:
+                signal['age_minutes'] += round((time.monotonic()-started)/60, 1)
+                signal['expired'] = signal['age_minutes'] > 45
                 title = '[NIFTY signal] '+signal['id']
                 if not signal['expired'] and title not in ledger:
                     body = '**RESEARCH ONLY — delayed reference levels, not an executable entry. No trades placed.**\n\n```json\n'+json.dumps(signal, indent=2)+'\n```\n\nPartial coverage: '+str(report['evaluated'])+'/50. Yahoo feed and runner may be delayed. Check current prices independently. SHORT is a bearish research signal, not an overnight cash short recommendation.'

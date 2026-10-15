@@ -20,6 +20,18 @@ def fixture():
 
 
 class MonitorTests(unittest.TestCase):
+    def test_5m_recovery_requires_three_real_bars(self):
+        import pandas as pd
+        start = datetime(2026,10,15,9,15,tzinfo=m.IST)
+        frame = pd.DataFrame(dict(Open=[100,101,102], High=[102,103,104], Low=[99,100,101], Close=[101,102,103], Volume=[10,20,30]),index=pd.date_range(start,periods=3,freq='5min'))
+        ticker = types.SimpleNamespace(history=lambda **kw:frame)
+        result = m.recover_5m(ticker,start+timedelta(minutes=20))
+        self.assertEqual(result.iloc[0].Volume,60)
+        self.assertEqual(result.iloc[0].Close,103)
+        ticker.history = lambda **kw:frame.iloc[:2]
+        with self.assertRaises(ValueError):
+            m.recover_5m(ticker,start+timedelta(minutes=20))
+
     def test_publish_dedup_and_holiday(self):
         import pandas as pd
         bars = fixture()

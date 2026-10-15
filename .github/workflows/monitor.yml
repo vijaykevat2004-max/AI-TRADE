@@ -5,7 +5,8 @@ on:
     paths: ['monitor.py', 'test_monitor.py', 'requirements.txt', '.github/workflows/monitor.yml']
   schedule:
     # UTC: IST 09:37-16:22, every 15 min; after close catches delayed final bars.
-    - cron: '7,22,37,52 4-10 * * 1-5'
+    - cron: '7,22,37,52 4-9 * * 1-5'
+    - cron: '7,22 10 * * 1-5'
 permissions:
   contents: read
   issues: write
