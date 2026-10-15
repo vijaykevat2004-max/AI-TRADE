@@ -1,33 +1,103 @@
 //@version=6
-indicator("NIFTY Research Companion v2", overlay=true, max_lines_count=300, max_labels_count=100)
-// Native chart calculations use TradingView's own feed. They are not imported Yahoo signals.
-// Research reference levels only. No orders or automatic trading.
-showLevels = input.bool(true, "Show latest native setup levels")
-keepBars = input.int(20, "Reference line length", minval=1, maxval=100)
-fast = ta.ema(close, 20)
-slow = ta.ema(close, 50)
-high20 = ta.highest(high[1], 20)
-low20 = ta.lowest(low[1], 20)
-volumeMean = ta.sma(volume[1], 20)
-atr = ta.sma(ta.tr(true), 14)
+indicator("NSE Liquidity v0.1 — VISUAL REHEARSAL", overlay=true, max_lines_count=100, max_boxes_count=100, max_labels_count=100)
+// SOURCE: TradeZella daily bias, raid and confirmation concept.
+// PROPOSED_NSE/EXPERIMENTAL: every formula and threshold below.
+// NOT backend parity certified. No orders, alerts, external evidence import or cloud worker.
+left = input.int(2, "Pivot left", minval=1)
+right = input.int(2, "Pivot right", minval=1)
+bufferTicks = input.int(2, "Sweep/stop buffer ticks", minval=1)
+gapTicks = input.int(2, "FVG minimum ticks", minval=1)
+minRR = input.float(1.5, "Experimental minimum net RR", minval=0)
+dailyData() =>
+    ph = ta.pivothigh(high, left, right)
+    pl = ta.pivotlow(low, left, right)
+    lastH = ta.valuewhen(not na(ph), ph, 0)
+    lastL = ta.valuewhen(not na(pl), pl, 0)
+    [high[1], low[1], close[1], lastH[1], lastL[1]]
+[pdh, pdl, dc, dh, dl] = request.security(syminfo.tickerid, "D", dailyData(), lookahead=barmerge.lookahead_on)
+bias = dc > dh ? 1 : dc < dl ? -1 : 0
 regular = not na(time(timeframe.period, "0915-1530:23456", "Asia/Kolkata"))
-valid = timeframe.isminutes and timeframe.multiplier == 15 and regular and barstate.isconfirmed and bar_index >= 150 and volume > 0 and volumeMean > 0
-longSignal = valid and close > high20 and fast > slow and close > fast and volume >= 1.5 * volumeMean
-shortSignal = valid and close < low20 and fast < slow and close < fast and volume >= 1.5 * volumeMean
-plot(fast, "EMA20", color=color.new(color.teal, 25))
-plot(slow, "EMA50", color=color.new(color.orange, 30))
-plotshape(longSignal, title="Native LONG research", style=shape.triangleup, location=location.belowbar, color=color.lime, text="L", size=size.tiny)
-plotshape(shortSignal, title="Native SHORT research", style=shape.triangledown, location=location.abovebar, color=color.red, text="S", size=size.tiny)
-if (longSignal or shortSignal) and showLevels
-    sign = longSignal ? 1 : -1
-    risk = math.max(1.5 * atr, longSignal ? close-low : high-close)
-    stop = close-sign*risk
-    target = close+sign*2*risk
-    line.new(bar_index, close, bar_index+keepBars, close, color=color.yellow, style=line.style_dashed)
-    line.new(bar_index, stop, bar_index+keepBars, stop, color=color.red)
-    line.new(bar_index, target, bar_index+keepBars, target, color=color.lime)
-    label.new(bar_index, longSignal ? low : high, (longSignal ? "LONG" : "SHORT") + " RESEARCH\nRef " + str.tostring(close, format.mintick) + "\nStop " + str.tostring(stop, format.mintick) + "\n2R " + str.tostring(target, format.mintick), style=longSignal ? label.style_label_up : label.style_label_down, color=color.new(longSignal ? color.green : color.red, 20), textcolor=color.white, size=size.small)
-var table status = table.new(position.top_right, 1, 2)
+window = not na(time(timeframe.period, "0930-1130:23456", "Asia/Kolkata"))
+valid = timeframe.isminutes and timeframe.multiplier == 5 and regular and barstate.isconfirmed
+newDay = ta.change(time("D")) != 0
+var float orh = na
+var float orl = na
+var int raid = na
+var int reclaim = na
+var float extreme = na
+var float level = na
+var int side = 0
+var float mssLevel = na
+if newDay
+    orh := na
+    orl := na
+    raid := na
+    reclaim := na
+    side := 0
+if valid and not na(time(timeframe.period, "0915-0930:23456", "Asia/Kolkata"))
+    orh := na(orh) ? high : math.max(orh, high)
+    orl := na(orl) ? low : math.min(orl, low)
+ph = ta.pivothigh(high, left, right)
+pl = ta.pivotlow(low, left, right)
+lastH = ta.valuewhen(not na(ph), ph, 0)
+lastL = ta.valuewhen(not na(pl), pl, 0)
+buff = bufferTicks * syminfo.mintick
+bullGap = low > high[2] and low-high[2] >= gapTicks*syminfo.mintick
+bearGap = high < low[2] and low[2]-high >= gapTicks*syminfo.mintick
+atr = ta.sma(ta.tr(true), 14)
+bool swept = false
+bool mss = false
+bool signal = false
+if valid and window and bias != 0
+    if na(raid)
+        if bias == 1 and low < pdl-buff
+            side := 1
+            level := pdl
+            extreme := low
+            raid := bar_index
+            mssLevel := lastH[1]
+            swept := true
+        else if bias == -1 and high > pdh+buff
+            side := -1
+            level := pdh
+            extreme := high
+            raid := bar_index
+            mssLevel := lastL[1]
+            swept := true
+    if not na(raid)
+        extreme := side == 1 ? math.min(extreme, low) : math.max(extreme, high)
+        if na(reclaim) and bar_index-raid <= 2 and side*(close-level) > 0
+            reclaim := bar_index
+        if not na(reclaim) and bar_index > reclaim and bar_index-reclaim <= 3
+            mss := not na(mssLevel) and side*(close-mssLevel)>0 and side*(close[1]-mssLevel)<=0
+            fvgConfirmed = bar_index-2 > reclaim and (side == 1 ? bullGap : bearGap)
+            if mss or fvgConfirmed
+                stop = extreme-side*buff
+                target = side == 1 ? pdh : pdl
+                cost = close*0.0012+4*syminfo.mintick
+                risk = side*(close-stop)
+                netRR = (side*(target-close)-cost)/(risk+cost)
+                if risk > 0 and side*(target-close)>0 and netRR>=minRR and math.abs(close-level)<=1.5*atr
+                    signal := true
+                    line.new(bar_index, close, bar_index+12, close, color=color.yellow)
+                    line.new(bar_index, stop, bar_index+12, stop, color=color.red)
+                    line.new(bar_index, target, bar_index+12, target, color=color.lime)
+                    label.new(bar_index, close, (side==1?"PAPER BUY":"PAPER SELL")+"\nRef "+str.tostring(close)+"\nStop "+str.tostring(stop)+"\nLiquidity "+str.tostring(target), style=label.style_label_left)
+                raid := na
+                reclaim := na
+        if not na(raid) and ((na(reclaim) and bar_index-raid>2) or (not na(reclaim) and bar_index-reclaim>3))
+            raid := na
+            reclaim := na
+if valid and (bullGap or bearGap)
+    box.new(bar_index-2, bullGap?low:low[2], bar_index+3, bullGap?high[2]:high, bgcolor=color.new(bullGap?color.green:color.red,90), border_color=color.new(color.gray,70))
+plot(pdh,"PDH completed session",color=color.orange)
+plot(pdl,"PDL completed session",color=color.aqua)
+plot(orh,"Proposed OR high",color=color.new(color.orange,50))
+plot(orl,"Proposed OR low",color=color.new(color.aqua,50))
+plotshape(swept,title="Raid candidate",style=shape.diamond,location=location.abovebar,color=color.orange,size=size.tiny)
+plotshape(mss,title="MSS",style=shape.circle,location=location.belowbar,color=color.purple,size=size.tiny)
+var table status=table.new(position.top_right,1,3)
 if barstate.islast
-    table.cell(status, 0, 0, "RESEARCH ONLY · NO ORDERS", bgcolor=color.new(color.black, 15), text_color=color.white)
-    table.cell(status, 0, 1, timeframe.isminutes and timeframe.multiplier == 15 ? "TradingView feed · not Yahoo proof" : "Select 15-minute timeframe", bgcolor=color.new(color.black, 15), text_color=color.orange)
+    table.cell(status,0,0,"VISUAL REHEARSAL / NOT PARITY CERTIFIED")
+    table.cell(status,0,1,"Daily bias "+(bias==1?"BULL":bias==-1?"BEAR":"NEUTRAL"))
+    table.cell(status,0,2,timeframe.period=="5"?"5m native feed • no cloud alerts":"Use 5-minute chart")

@@ -1,39 +1,11 @@
-# NIFTY signal system: implementation and acceptance
+# Current replacement topology
 
-## Intended experience
+Official NIFTY manifest -> keyless Yahoo adapter -> closed-bar validation -> fifty logical SQLite agents -> pure liquidity kernel -> frozen evidence + durable outbox -> health ledger -> existing private dashboard.
 
-Cloud scans all 50 constituents; publishes only qualifying research signals. Opening a stock should show the signal candle and reference entry, stop and target. The user specifically wants these markings in their real TradingView account. A separate chart is supporting evidence, not a substitute for that acceptance condition.
+GitHub Actions is a periodic rehearsal runner. A user-run `rehearsal.py --serve` supervisor can remain alive while its host stays powered and connected. No Railway service or 24x7 free cloud entitlement was found. `/health` reports liveness, `/ready` never claims production acceptance. Outbox persistence and dedupe are implemented; acceptance-gated notification delivery is implemented but disabled. No Pine webhook is configured.
 
-## Components implemented
+Pine candidate is native per-symbol visual research, one daily tuple request. It covers PDH/PDL raids, daily pivot bias, FVG, MSS and proposed risk lines. It does not yet implement every backend reference pool, 15m context or corporate-action reset; exact parity is explicitly BLOCKED. The legacy two 25-stock sources must be inspected before mutation. Their historical alert() calls do not create Basic server alerts.
 
-1. Existing GitHub Actions runner: fresh official 50-symbol universe, 15m closed bars, IST hours, official holiday lookup, no-current-session guard, data integrity checks, EMA/breakout/volume logic, reference risk levels, retry and 5m recovery, serialized runs, durable issue dedup, failure reports.
-2. Frozen evidence for newly created candidates: 41 actual bars, preceding high/low and volume threshold, EMA values and seeds, source/collection time, canonical JSON and SHA-256 digest. A digest checks consistency; it is not independent exchange certification. Existing earlier signals lack these snapshots and remain labelled accordingly.
-3. Private dashboard: https://nifty-signal-command-centre.vijaykevat2004.chatgpt.site . Reads actual bot-authored GitHub evidence; current-source chart via a keyless Yahoo request; selected signal's original snapshot takes precedence when available. No fabricated candles, no fabricated signals. Historical/expired signals are labelled. Each stock has a TradingView link using the user's saved chart layout and 15m interval. It never claims that a link imports backend drawings.
-4. TradingView companion Pine indicator: native chart EMA20/50, confirmed 15m breakout/volume signals, labels and reference/stop/target lines. It uses TradingView's own feed and may disagree with Yahoo. Saved native overlay is a chart feature, not a TradingView cloud scanning service.
-5. Explicit after-hours source audit: scans the current date and writes health evidence without sending signal alerts. Previous market scan is retained in the health issue when normal polls are outside market hours.
+Frontend source changes filter active records to jadecap_nse_liquidity_v1 and show fifty status rows only from actual new-strategy agent reports. It must never invent successful rows from the old momentum health record. Inspected Yahoo charts may have filtered gaps; these are not original signal evidence. A TradingView link does not import drawings or provide external tool control.
 
-## Data path
-
-Official NIFTY CSV → keyless Yahoo/yfinance → validated candles → deterministic signal + snapshot → GitHub issue/notification → private dashboard → selected chart + evidence → native TradingView chart link.
-
-TradingView companion: TradingView's own chart data → native Pine calculations → chart labels/lines. This is a separate computation, not an import of the cloud snapshot. No TradingView scraping, private API, session export, CAPTCHA bypass or broker connection is implemented.
-
-## Acceptance ledger
-
-- Scheduled source exists and initial cloud execution/issue assignment were verified. A naturally scheduled market-hours occurrence must be verified separately.
-- Every run requests 50 constituents; source failures are explicit. Full 50/50 usable coverage has not been demonstrated.
-- 10 local backend tests pass, including repeat-run dedup, no-lookahead, exact candle closure, holiday skip, real-group 5m recovery and snapshot digest consistency.
-- Dashboard type checking and production build pass. Real preview chart/source/GRASIM reference levels have been visually checked.
-- TradingView Pine compiled and attached within Basic plan limits. The redundant standalone EMA20 was replaced by the companion's EMA20; SMA18 remains. Existing Group 1/Group 2 scripts remain saved. Layout save and reopening GRASIM via the stock link verified persistence. The GRASIM 15m chart visibly showed native LONG reference 2907.10, stop 2890.60 and target 2940.10, matching the recorded backend setup on this one example. This is not certification of other stocks/future signals or source equality.
-- Backend and TradingView signal equality is not guaranteed across different feeds and is not certified. A system with full autonomous access to all TradingView tools is not implemented.
-- A fresh after-hours cloud audit on 15 October attempted all 50 symbols; 9 passed and 41 were blocked by incomplete source groups. The workflow failed deliberately for partial coverage and retained its report. Ten cloud/local tests passed. No audit signal notifications were sent. Full 50-stock readiness remains unachieved.
-- No order placement. Reference close is not an execution/fill. No expected profitability, accuracy percentage or live-entry recommendation is claimed.
-
-## Operating boundaries
-
-GitHub cron is best effort and may be disabled after inactivity. Railway could host a future continuous worker, but no paid deployment, credit commitment, browser session export or resource budget has been authorized or provisioned. Railway is not necessary for the current scheduled backend. No forever-free or uninterrupted service promise.
-
-Yahoo is unofficial, personal-use and may delay or omit data. Automatic data recovery never fabricates OHLCV. NSE normal sessions only; special/weekend sessions are unsupported. Calendar failure is UNKNOWN, not proof of a holiday.
-
-Dashboard data reads can be rate-limited; caches are two minutes. Recent history is limited to the newest 500 GitHub issues, explicitly surfaced by the API. Original records stay in GitHub; owner-created edits can change them. Do not delete/rename signal ledger issues.
-
+See docs/production_rollout_and_rollback.md for backup and deployment gates.

@@ -1,53 +1,23 @@
-# Free personal NIFTY 50 monitor
+# JadeCap NSE liquidity replacement — delayed rehearsal only
 
-Private interface: https://nifty-signal-command-centre.vijaykevat2004.chatgpt.site . See SYSTEM-DESIGN.md for the precise component boundaries and remaining TradingView acceptance checks. The dashboard is not a claim that all TradingView tools are cloud-controlled.
+Existing repository and account retained. **PRODUCTION BLOCKED**: no dependable 50-stock 5m feed, market-open rehearsal or Pine/backend parity has passed. No broker or order interface exists. execution_enabled=false.
 
-Signal-only research. `execution_authority=false`. No broker, orders, TradingView alerts, paid service, market-data key or user-generated GitHub token is used.
+Strategy: jadecap_nse_liquidity_v1 / 0.1.0. The TradeZella idea and the proposed deterministic NSE rules are separated in docs/strategy_source_vs_proposal.md. Start with docs/as_is_audit.md and reports/verification.md.
 
-## What runs
+## Run
 
-GitHub Actions runs on standard Linux runners on a public repository (currently free). Every 15 minutes on weekdays, UTC 04:07–10:52 is requested; the Python IST gate scans only 09:30–16:25. Effective normal scheduled scan window is 09:37–16:22 IST. Late polls catch the final 15:15–15:30 candle. GitHub cron can queue late or drop jobs. It is not a continuous real-time service or an availability guarantee. Public scheduled workflows are disabled after 60 days without repository activity; inspect Actions periodically and re-enable when required. There is deliberately no artificial keep-alive activity.
+Python 3.12+: `pip install -r requirements.txt`; `python -m unittest -v`; `python rehearsal.py --serve`. Local API http://127.0.0.1:8765: /health, /agents/status, /signals; /ready deliberately 503. `python replay.py` downloads real historical source data for a read-only chronological audit, never alerts. No market-data API key is requested.
 
-## Data and market calendar
+Fifty isolated logical actors share a bounded four-worker supervisor. SQLite keeps their state and deduplicated outbox. Closed exchange reports fifty MARKET_CLOSED actors without fetching invented current bars. Calendar unavailable during market hours fails closed. Cash hours are 09:15–15:30 IST, the experimental setup window is 09:30–11:30. Special-session overrides require notice verification.
 
-- Fresh official constituent CSV is downloaded on each scan. Exactly 50 distinct EQ symbols must validate. No silently stale fallback universe. Symbols are mapped to Yahoo `.NS`; failures are listed individually.
-- Official NSE CM holiday endpoint is tried each run. If inaccessible or the year is missing, calendar status is UNKNOWN. In that case a stock must have today's regular-session bars. Previous-day prices are never interpreted as today's session. Holidays with no bars are reported as unavailable, not falsely confirmed as holidays. Weekend and special/Muhurat sessions are not supported.
-- Yahoo via yfinance is keyless, unofficial and intended for personal research. It may be delayed, revised, incomplete, blocked or rate-limited. A TradingView delay does not establish Yahoo's delay. Do not redistribute raw data or assume commercial rights. No CAPTCHA or access-control bypass is used.
-- 1 month of 15m unadjusted bars is requested; latest 250 bars feed the calculation. At least 150 prior bars warm up EMA50. Prices must be positive and internally consistent; volume must be positive. If 15m data is malformed or has missing bars, the monitor attempts recovery from real 5m bars: exactly three complete positive-volume candles are required per closed 15m group. No forward filling or invented volume. Unrecoverable data blocks that symbol. Splits/dividends in the requested history also block it conservatively.
-- Bar timestamps must be aware and unique. Only regular 09:15–15:30 IST bars are used. A candle is eligible 90 seconds after its 15-minute close. Missing bars/session boundaries in recent history block that symbol. Data can lag at most 30 minutes behind the expected last close. Actual bar timestamps and lag are reported; delay is never assumed fixed.
+GitHub workflow requests periodic rehearsal runs and publishes health only using its automatic token. This is not a 24x7 cloud process; schedules and caches can be delayed/evicted. The durable retry/expiry/ledger notification dispatcher is implemented and disabled until acceptance. Legacy Issues remain historical. Backup branch backup/legacy-momentum-20261015 preserves the old strategy; main legacy schedule was retired separately.
 
-## Signals and levels
+Existing private dashboard: https://nifty-signal-command-centre.vijaykevat2004.chatgpt.site . This URL identifies the existing deployed legacy frontend, NOT a verified replacement release. Replacement source is staged in the existing Sites checkout; publication waits for acceptance. Existing TradingView layout: https://www.tradingview.com/chart/mWisj3X4/ . Pine source is a visual rehearsal candidate and has no cloud alert entitlement or certified parity.
 
-LONG: close above the preceding 20 highs, EMA20 > EMA50, close > EMA20. SHORT is the inverse using preceding lows. Both require signal volume >=1.5 times preceding 20-bar average. The signal bar is excluded from breakout and average-volume thresholds. No profitability claim or backtest validation is made. This is a new reconstructed strategy, not a verified exact copy of the old Pine scripts.
+## Source limitations
 
-Reference = closed-bar close. ATR = simple mean of 14 true ranges. Risk distance = greater of 1.5 ATR and distance to signal-bar low (LONG) / high (SHORT). Stop = reference minus/plus that distance; target = 2R. These are delayed, theoretical reference levels, not entry instructions or fill guarantees. Shorts are bearish research only. Slippage, gaps, costs and position sizing are not modelled.
+Yahoo/yfinance is unofficial keyless best effort, not an exchange entitlement or a realtime SLA. Three recent intraday sessions and up to sixty completed daily bars are used. Both streams reset after the latest corporate action in used daily history; insufficient post-action warmup blocks that stock. Strict positive OHLCV, chronological unique timestamps, finalized candles and intraday gap checks apply. No synthetic fills, invented volume or control bypass. Tick metadata and special-session audit remain production blockers. A full OHLCV entitlement/redistribution review is still required for anything beyond personal research.
 
-## Notifications without supplying a key
+The fifteen-minute structure is derived from complete contiguous five-minute triples and recorded as context; an independently backtested 15m structural eligibility filter and DEGRADED_15M fallback are NOT enabled. There is no RSI divergence module. Breaker, continuation and the conflicting source 1h example are disabled.
 
-The workflow's short-lived automatic `github.token` is used with `contents:read` and `issues:write`. You supply no secret. Signals become issues assigned to the repository owner, which creates GitHub inbox notifications. For email/mobile delivery, enable GitHub account notification settings and the GitHub app notifications. Repository **Watch → All Activity** is recommended. Delivery to a device/email is not verified merely by creating an issue.
-
-Each strategy/symbol/candle/direction has a stable ID. Before publishing, the runner reads all open and closed issues; existing IDs suppress repeats. Do not delete or rename signal issues: they are the durable dedup ledger. Runs are serialized. Notifications older than 45 minutes are suppressed; today's expired candidates remain in the report. There is no prior-day catch-up. A network timeout after GitHub accepts a write may leave that run failed; next run reconciles against the ledger.
-
-The **Health and coverage** issue shows last collection time, calendar status, exact failures, latest bar per stock, evaluated count and recent candidates. Its timestamp is the heartbeat: stale timestamp means monitoring has not updated. A green workflow outside polling hours does not prove data coverage. Partial/zero coverage causes a failed workflow while still preserving valid per-stock signals and the report. State changes post comments. Actions failures can notify via GitHub's own notification settings. A provider outage and a holiday can be indistinguishable when the calendar endpoint is unavailable.
-
-## Open and verify
-
-1. Open the repository **Actions → NIFTY 50 personal research monitor → Run workflow**. The initial source push also runs it.
-2. Inspect the run, the health issue and `coverage-<run id>` artifact. Confirm requested=50, the evaluated count, failed symbols and bar times. **Deployed** means the workflow exists; **operational full coverage** means a fresh market-hours run evaluated 50/50. Those are separate checks.
-3. Open **Issues** and enable owner notifications. A real signal issue proves GitHub accepted a signal; it does not prove email/push delivery. Test notification delivery by observing the assigned health issue in your GitHub inbox.
-4. Turn off with Actions → workflow menu → Disable workflow. Remove/close old issues only if you understand the dedup consequences. No PC/browser needs to stay on.
-
-No ZIP is required. Source is directly readable in GitHub or this folder. Local read-only test: install Python 3.12, `pip install -r requirements.txt`, `python -m unittest -v`, then `python monitor.py`. Only GitHub Actions uses `--publish`. Replay uses `--now <aware ISO timestamp>` and cannot publish.
-
-## Sources
-
-- Constituents: https://www.niftyindices.com/IndexConstituent/ind_nifty50list.csv
-- Holiday endpoint: https://www.nseindia.com/api/holiday-master?type=trading
-- yfinance personal-use limitations: https://ranaroussi.github.io/yfinance/
-- Schedule delays and inactivity: https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule
-- Free public standard runners: https://docs.github.com/en/billing/concepts/product-billing/github-actions
-- Notifications: https://docs.github.com/en/subscriptions-and-notifications
-
-## Initial validation (15 October 2026)
-
-Local unit/integration tests passed (9), including 50-symbol synthetic scan, LONG/SHORT levels, no future-bar lookahead, 90-second closed-bar grace, invalid/duplicate universe rejection, holiday/weekend skip, complete 5m recovery and durable notification dedup across repeat runs. Live official CSV validated 50 symbols. Live Yahoo access worked, but the 14:25 IST scan evaluated only 20/50 because missing historical bars and malformed OHLCV blocked the remainder. The first cloud run at 14:28 IST evaluated 8/50 and posted a real GRASIM research signal (#1) and health issue (#2). Both assignments were verified in the owner's GitHub notifications inbox; repository All Activity notifications were enabled. Cloud tests passed; the scan deliberately exited nonzero for partial coverage. A later recovery attempt still found missing 5m groups. This is partial coverage, not a validated 50/50 service. Email/mobile delivery and a naturally scheduled run remain unverified. See subsequent health report for current results.
+No claimed win rate, uptime, profitability or complete source coverage. See the verification report for exact measured failures.
