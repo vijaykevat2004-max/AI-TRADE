@@ -48,6 +48,7 @@ def main():
         report['universe']=dict(UNIVERSE_EVIDENCE)
         report['coverage']=dict(requested=50,current_feed_observed=sum(a.get('current_feed',{}).get('status')=='OBSERVED' for a in report['agents']),strategy_history_ready=sum(a['status'] not in ('UNAVAILABLE','STALE_FEED','WARMUP','CALENDAR_UNKNOWN','MARKET_CLOSED') for a in report['agents']),warmup=sum(a['status']=='WARMUP' for a in report['agents']),meaning='Observed feed is a validated recent closed bar; strategy history additionally requires complete context. Neither implies real-time or certified production.')
         report['coverage'].update(history_prepared=sum(a.get('history_preparation',{}).get('status')=='PREPARED' for a in report['agents']),history_pending=sum(a.get('history_preparation',{}).get('status')=='DATA_PENDING' for a in report['agents']))
+        report['polling']=dict(target_interval_minutes=5,strategy_bar_minutes=5,catch_up='EVERY_UNSEEN_NON_STALE_CLOSED_PREFIX',continuous_process=False)
         if a.paper_followup:
             from liquidity.paper import records,update_symbol,summary
             from liquidity.runtime import source

@@ -49,6 +49,9 @@ class Store:
                 db.execute('INSERT OR IGNORE INTO outbox(id,payload) VALUES(?,?)',(state['id'],json.dumps(state,default=str)))
     def pending(self):
         with self.connect() as db:return [(i,json.loads(p)) for i,p in db.execute("SELECT id,payload FROM outbox WHERE sent=0 AND status='PENDING' ORDER BY rowid")]
+    def enqueue(self,signal):
+        with self.connect() as db:
+            return bool(db.execute('INSERT OR IGNORE INTO outbox(id,payload) VALUES(?,?)',(signal['id'],json.dumps(signal,default=str))).rowcount)
     def delivery(self,id,error=None):
         with self.connect() as db:db.execute('UPDATE outbox SET attempts=attempts+1,error=?,sent=? WHERE id=?',(error,0 if error else 1,id))
 
@@ -180,7 +183,28 @@ class Supervisor:
                 base['history_preparation']=dict(status='PREPARED' if context_ready else 'DATA_PENDING',intraday_bars=len(bars['5m']),daily_bars=len(bars['1d']),required_intraday=20,required_daily=20,persisted=True)
                 if market!='OPEN':
                     return dict(base,status=market,decision='NO_TRADE',feed_reconciliation=bars.get('_quality',{}),reason_codes=['OFF_HOURS_HISTORY_PREPARED' if context_ready else 'OFF_HOURS_HISTORY_INCOMPLETE'])
-                decision=evaluate(symbol,now,bars,cfg)
+                # Polling can deliver several newly closed bars. Evaluate every
+                # unseen, non-stale prefix, not just the newest candle.
+                raw=bars['5m'];seen=old.get('processed_bar_close');new_signals=[]
+                indexes=[]
+                for i,b in enumerate(raw):
+                    closed=b.t+timedelta(minutes=5)
+                    if b.t.date()==now.date() and cfg['finalization_seconds']<=(now-closed).total_seconds()<=cfg['max_feed_age_seconds'] and (not seen or closed>datetime.fromisoformat(seen)):
+                        indexes.append(i)
+                if raw and len(raw)-1 not in indexes:indexes.append(len(raw)-1)
+                decision=evaluate(symbol,now,bars,cfg) if not raw else dict(status='UNAVAILABLE',decision='NO_TRADE',reason_codes=['NO_CLOSED_BARS'])
+                for i in indexes:
+                    prefix=dict(bars,**{'5m':raw[:i+1]})
+                    candidate=evaluate(symbol,now,prefix,cfg)
+                    if candidate.get('status')=='SIGNAL':
+                        from .paper import register
+                        register(self.store,candidate)
+                        if self.store.enqueue(candidate):new_signals.append({k:v for k,v in candidate.items() if k not in ('evidence','evidence_canonical')})
+                    if i==len(raw)-1:decision=candidate
+                base['new_signals']=new_signals
+                base['prefixes_checked']=len(indexes)
+                if raw and decision.get('status') not in ('UNAVAILABLE','STALE_FEED','WARMUP'):
+                    base['processed_bar_close']=(raw[-1].t+timedelta(minutes=5)).isoformat()
                 if '_quality' in bars:decision['feed_reconciliation']=bars['_quality']
                 latest=bars['5m'][-1] if bars['5m'] else None
                 if latest:
@@ -190,9 +214,8 @@ class Supervisor:
                         decision['current_feed']=dict(status='OBSERVED' if latest.t.date()==now.date() and age<=cfg['max_feed_age_seconds'] else 'STALE',last_close=(latest.t+timedelta(minutes=5)).isoformat(),age_seconds=age,provider='Yahoo/yfinance best effort')
                     except ValueError:decision['current_feed']=dict(status='INVALID')
                 # Same prefix may be evaluated again, but a signal already persisted is not resent.
-                base.update(decision,watermark=decision.get('last_bar_close'),failures=0)
-                from .paper import register,update_symbol
-                if decision.get('status')=='SIGNAL':register(self.store,decision)
+                base.update({k:v for k,v in decision.items() if k not in ('evidence','evidence_canonical')},watermark=decision.get('last_bar_close'),failures=0)
+                from .paper import update_symbol
                 update_symbol(self.store,symbol,bars['5m'],now,cfg)
             except Exception as e:
                 count=base['failures']+1
@@ -204,7 +227,7 @@ class Supervisor:
         states=self.store.states()
         from .paper import summary,records
         counts={s:sum(x['status']==s for x in states.values()) for s in sorted({x['status'] for x in states.values()})}
-        return dict(collected_at=now.isoformat(),strategy_id=cfg['strategy_id'],version=cfg['strategy_version'],status=market if market!='OPEN' else 'REHEARSAL',requested=50,evaluated=sum(x.get('watermark') is not None for x in states.values()),production_ready=False,source='Yahoo/yfinance best effort; latency measured per symbol, not realtime',execution_authority=False,counts=counts,agents=list(states.values()),signals=[x for x in states.values() if x.get('decision') in ('BUY','SELL')],symbols=self.symbols,paper_summary=summary(self.store),paper_trades=records(self.store)[-25:])
+        return dict(collected_at=now.isoformat(),strategy_id=cfg['strategy_id'],version=cfg['strategy_version'],status=market if market!='OPEN' else 'REHEARSAL',requested=50,evaluated=sum(x.get('watermark') is not None for x in states.values()),production_ready=False,source='Yahoo/yfinance with documented official NSE daily recovery; best effort, not realtime',execution_authority=False,counts=counts,agents=list(states.values()),signals=[s for x in states.values() for s in x.get('new_signals',[])],symbols=self.symbols,paper_summary=summary(self.store),paper_trades=records(self.store)[-25:])
 
 def load_calendar(now):
     # Same official endpoint as existing project; unknown must fail closed.
