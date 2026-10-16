@@ -1,0 +1,11 @@
+# Version 0.1.1 observed-feed recovery
+
+This is an explicit proposed context-policy revision, not a claim of native Pine parity or source-authored rules. Prices, signal thresholds, entry windows and risk gates are unchanged. Failed prior sessions previously contaminated every later scan in the three-session input window.
+
+When native 5m validation fails, request the same provider's observed 1m stream. A replacement requires all five unique consecutive timestamps, finite positive OHLC, nonnegative constituent volumes, a positive summed volume, complete closure plus90seconds and matching original OHLC within the proposed tick tolerance when a native bar exists. Missing minutes, duplicate minutes, conflicting prices and zero summed volume cannot repair a bar. There is no interpolation, carry-forward or invented volume. Provider zero-volume minutes remain uncertainty; sums are not independently certified exchange volume.
+
+After reconciliation, reset context after the most recent defect in PRIOR sessions only. Removed bars cannot create pivots, raids, equal pools or indicator history. Current-session faults are never removed. This changes available context and may delay signals until at least20 clean bars exist. The current-session opening and continuity requirements remain. The effective corporate-action date's intraday bars are already in the new regime and are retained; completed daily context remains post-action only and may require weeks of warmup. Daily bias is not guessed to improve coverage.
+
+Reports distinguish current_feed_observed (valid recent closed bar on today's date within configured max age), strategy_history_ready (kernel progressed beyond input/warmup gates), and warmup. These are last-run observations, not real-time guarantees or production certification. All 50 may have observed prices while zero are signal-ready. No brokerage orders or production alert gates are enabled.
+
+Local market-hours observation on16October2026 at09:58IST:50/50 current feed observed,50 warmup,0 complete strategy histories. Verify cloud evidence separately.27 tests include incomplete/duplicate/unclosed minute rejection, price conflicts, negative volume, preservation of today's defects, and effective-action-day daily warmup. Feed limitations and Pine parity remain unresolved.

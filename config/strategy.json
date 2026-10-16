@@ -1,6 +1,6 @@
 {
   "strategy_id": "jadecap_nse_liquidity_v1",
-  "strategy_version": "0.1.0",
+  "strategy_version": "0.1.1",
   "rule_set": "PROPOSED_NSE_WINDOW_A",
   "timezone": "Asia/Kolkata",
   "source_mode": "DELAYED_REHEARSAL",

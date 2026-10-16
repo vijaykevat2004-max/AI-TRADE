@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sqlite3
 import time
-from .kernel import Bar, IST, evaluate, digest
+from .kernel import Bar, IST, evaluate, digest,validate
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -97,12 +97,16 @@ def source(symbol,now,cfg):
     action_dates=[stamp.date() for stamp,row in daily.iterrows() if any(col in daily and float(row[col] or 0)!=0 for col in ('Stock Splits','Dividends'))]
     reset=max(action_dates) if action_dates else None
     if reset:
-        frames={tf:f[[stamp.date()>reset for stamp in f.index]] for tf,f in frames.items()}
+        # Intraday opening on the effective date is already in the new regime.
+        # Daily context still requires fully post-action completed sessions.
+        frames={tf:f[[stamp.date()>=reset if tf=='5m' else stamp.date()>reset for stamp in f.index]] for tf,f in frames.items()}
     intraday=frames['5m'].sort_index()
     used_dates=sorted({stamp.date() for stamp in intraday.index})[-3:]
     frames['5m']=intraday[[stamp.date() in used_dates for stamp in intraday.index]]
     result={}
     for tf,f in frames.items():
+        if tf=='1d' and f.empty and reset:
+            result[tf]=[];continue # explicit daily warmup, not a missing price feed
         if f.empty or f.index.tz is None or f.index.has_duplicates:raise ValueError('EMPTY_OR_INVALID_INDEX_'+tf)
         out=[]
         for stamp,row in f.sort_index().iterrows():
@@ -111,6 +115,17 @@ def source(symbol,now,cfg):
             if tf=='5m' and t+timedelta(minutes=5,seconds=cfg['finalization_seconds'])>now:continue
             out.append(Bar(t,*[float(row[k]) for k in ('Open','High','Low','Close','Volume')]))
         result[tf]=out[-cfg['daily_lookback']:] if tf=='1d' else out
+    try:validate(result['5m'],5,now-timedelta(seconds=cfg['finalization_seconds']))
+    except ValueError:
+        from .feed import reconcile
+        minute=ticker.history(period='5d',interval='1m',auto_adjust=False,actions=True,raise_errors=True,timeout=20)
+        if minute.empty or minute.index.tz is None or minute.index.has_duplicates:raise ValueError('INVALID_1M_RECONCILIATION_SOURCE')
+        rows=[Bar(stamp.to_pydatetime().astimezone(IST),*[float(row[k]) for k in ('Open','High','Low','Close','Volume')]) for stamp,row in minute.sort_index().iterrows() if stamp.date() in used_dates and (not reset or stamp.date()>=reset)]
+        result['5m'],result['_quality']=reconcile(result['5m'],rows,now,cfg)
+    from .feed import bounded_context
+    result['5m'],context=bounded_context(result['5m'],now,cfg)
+    result['_quality']=dict(result.get('_quality',{}),**context)
+    if reset:result['_quality']['corporate_action_reset']=str(reset)
     return result
 
 class Supervisor:
@@ -128,6 +143,14 @@ class Supervisor:
             try:
                 bars=self.provider(symbol,now,cfg)
                 decision=evaluate(symbol,now,bars,cfg)
+                if '_quality' in bars:decision['feed_reconciliation']=bars['_quality']
+                latest=bars['5m'][-1] if bars['5m'] else None
+                if latest:
+                    age=(now-(latest.t+timedelta(minutes=5))).total_seconds()
+                    try:
+                        validate([latest],5,now-timedelta(seconds=cfg['finalization_seconds']))
+                        decision['current_feed']=dict(status='OBSERVED' if latest.t.date()==now.date() and age<=cfg['max_feed_age_seconds'] else 'STALE',last_close=(latest.t+timedelta(minutes=5)).isoformat(),age_seconds=age,provider='Yahoo/yfinance best effort')
+                    except ValueError:decision['current_feed']=dict(status='INVALID')
                 # Same prefix may be evaluated again, but a signal already persisted is not resent.
                 base.update(decision,watermark=decision.get('last_bar_close'),failures=0)
                 from .paper import register,update_symbol

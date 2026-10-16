@@ -46,6 +46,7 @@ def main():
         now=datetime.now(IST);supervisor.calendar=load_calendar(now)
         report=supervisor.tick(now)
         report['universe']=dict(UNIVERSE_EVIDENCE)
+        report['coverage']=dict(requested=50,current_feed_observed=sum(a.get('current_feed',{}).get('status')=='OBSERVED' for a in report['agents']),strategy_history_ready=sum(a['status'] not in ('UNAVAILABLE','STALE_FEED','WARMUP','CALENDAR_UNKNOWN','MARKET_CLOSED') for a in report['agents']),warmup=sum(a['status']=='WARMUP' for a in report['agents']),meaning='Observed feed is a validated recent closed bar; strategy history additionally requires complete context. Neither implies real-time or certified production.')
         if a.paper_followup:
             from liquidity.paper import records,update_symbol,summary
             from liquidity.runtime import source
