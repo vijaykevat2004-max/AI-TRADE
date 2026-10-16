@@ -4,8 +4,9 @@ on:
   push:
     paths: ['liquidity/**', 'rehearsal.py', 'test_*.py', 'config/**', '.github/workflows/liquidity_rehearsal.yml']
   schedule:
-    - cron: '7,22,37,52 4-9 * * 1-5'
-    - cron: '7 10 * * 1-5'
+    - cron: '47,52,57 3 * * 1-5'
+    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 4-9 * * 1-5'
+    - cron: '2 10 * * 1-5'
     - cron: '43 * * * *'
     - cron: '23 12 * * *'
 permissions:
@@ -21,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 4dc22b8699a30ce9ae5e9de013576bda07de4a12
+          ref: 9da8638f00b30a36492605fa99a867c859e7d232
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
