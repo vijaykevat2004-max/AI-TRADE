@@ -38,7 +38,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python rehearsal.py --publish-health --paper-followup
       - name: Daily historical backtest and frozen shadow learning
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.schedule == '23 12 * * *'
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 12 * * *'
         env:
           GH_TOKEN: ${{ github.token }}
         run: python research.py --publish
