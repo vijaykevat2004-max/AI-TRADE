@@ -4,6 +4,8 @@ from urllib.request import Request,urlopen
 from datetime import datetime,timedelta,timezone
 IST=timezone(timedelta(hours=5,minutes=30))
 UNIVERSE_URL="https://www.niftyindices.com/IndexConstituent/ind_nifty50list.csv"
+UNIVERSE_URLS=(UNIVERSE_URL,"https://archives.nseindia.com/content/indices/ind_nifty50list.csv")
+UNIVERSE_EVIDENCE={}
 HOLIDAYS_URL="https://www.nseindia.com/api/holiday-master?type=trading"
 def request(url, payload=None, token=None, method=None):
     headers = {'User-Agent': 'personal-nifty-research/1.0', 'Accept': 'application/vnd.github+json' if token else '*/*'}
@@ -16,8 +18,7 @@ def request(url, payload=None, token=None, method=None):
         return response.read().decode('utf-8-sig')
 
 
-def universe():
-    raw = request(UNIVERSE_URL)
+def parse_universe(raw):
     rows = list(csv.DictReader(io.StringIO(raw)))
     symbols = [r.get('Symbol', '').strip() for r in rows]
     if len(symbols) != 50 or len(set(symbols)) != 50 or any(not re.fullmatch(r'[A-Z0-9&-]+', s) for s in symbols):
@@ -25,6 +26,20 @@ def universe():
     if any(r.get('Series', '').strip() != 'EQ' for r in rows):
         raise ValueError('UNIVERSE_INVALID: non-EQ constituent')
     return sorted(symbols), hashlib.sha256(raw.encode()).hexdigest()
+
+
+def universe():
+    """Try two official publications; never bypass denial or use stale membership."""
+    errors=[];UNIVERSE_EVIDENCE.clear()
+    for url in UNIVERSE_URLS:
+        try:
+            raw=request(url);symbols,sha=parse_universe(raw)
+            UNIVERSE_EVIDENCE.update(status='VALIDATED',source=url,fetched_at=datetime.now(IST).isoformat(),sha256=sha,count=50,failed_sources=errors)
+            return symbols,sha
+        except Exception as e:
+            errors.append(dict(source=url,error=type(e).__name__,detail=str(e)[:200]))
+    UNIVERSE_EVIDENCE.update(status='UNAVAILABLE',failed_sources=errors)
+    raise RuntimeError('UNIVERSE_UNAVAILABLE: both official publications failed validation or retrieval')
 
 
 class GitHub:

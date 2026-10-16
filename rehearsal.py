@@ -8,7 +8,7 @@ import time
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from liquidity.kernel import IST
 from liquidity.runtime import Store, Supervisor, load_calendar,config,dispatch,GitHubNotifications
-from monitor import universe,GitHub
+from monitor import universe,GitHub,UNIVERSE_EVIDENCE
 
 def serve(store,port):
     class Handler(BaseHTTPRequestHandler):
@@ -25,8 +25,16 @@ def serve(store,port):
 
 def main():
     p=argparse.ArgumentParser();p.add_argument('--serve',action='store_true');p.add_argument('--publish-health',action='store_true');p.add_argument('--paper-followup',action='store_true');p.add_argument('--db',default='state.sqlite');p.add_argument('--port',type=int,default=8765);a=p.parse_args()
-    symbols,manifest_hash=universe();store=Store(a.db);now=datetime.now(IST)
     Path('reports').mkdir(exist_ok=True)
+    now=datetime.now(IST)
+    try:symbols,manifest_hash=universe()
+    except RuntimeError:
+        failure=dict(collected_at=now.isoformat(),strategy_id=config()['strategy_id'],status='UNIVERSE_UNAVAILABLE',requested=50,evaluated=0,agents=[],signals=[],symbols=[],production_ready=False,execution_authority=False,universe=UNIVERSE_EVIDENCE)
+        Path('reports/liquidity-latest.json').write_text(json.dumps(failure,indent=2))
+        if a.publish_health:
+            gh=GitHub();gh.health(failure,gh.issues())
+        raise
+    store=Store(a.db)
     Path('reports/universe.json').write_text(json.dumps(dict(symbols=symbols,sha256=manifest_hash,fetched_at=now.isoformat()),indent=2))
     supervisor=Supervisor(symbols,store,load_calendar(now))
     from liquidity.paper import restore_journal,sync_journal
@@ -37,6 +45,7 @@ def main():
     while True:
         now=datetime.now(IST);supervisor.calendar=load_calendar(now)
         report=supervisor.tick(now)
+        report['universe']=dict(UNIVERSE_EVIDENCE)
         if a.paper_followup:
             from liquidity.paper import records,update_symbol,summary
             from liquidity.runtime import source
