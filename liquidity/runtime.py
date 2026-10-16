@@ -33,6 +33,7 @@ class Store:
             db.execute('CREATE TABLE IF NOT EXISTS deliveries(id INTEGER PRIMARY KEY, event_id TEXT, at TEXT, outcome TEXT, detail TEXT)')
             db.execute('CREATE TABLE IF NOT EXISTS paper(id TEXT PRIMARY KEY,symbol TEXT NOT NULL,record TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS history(symbol TEXT,timeframe TEXT,stamp TEXT,o REAL,h REAL,l REAL,c REAL,v REAL,observed_at TEXT,PRIMARY KEY(symbol,timeframe,stamp))')
+            db.execute('CREATE TABLE IF NOT EXISTS history_basis(symbol TEXT PRIMARY KEY,identity TEXT)')
     @contextmanager
     def connect(self):
         db=sqlite3.connect(self.path,timeout=20)

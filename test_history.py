@@ -49,3 +49,10 @@ class HistoryTests(unittest.TestCase):
             new={'5m':[],'1d':[],'_quality':{'daily_price_basis':'PROVIDER_ADJUSTED','adjustment_factors':{'2026-10-16':0.9}}}
             out=retain(st,'TEST',new,now,config())
             self.assertEqual(out['5m'],[]);self.assertEqual(out['1d'],[])
+    def test_fifty_adjusted_workers_persist_without_lock_upgrade_failure(self):
+        now,frames=self.fixture();frames['_quality']={'daily_price_basis':'PROVIDER_ADJUSTED','adjustment_factors':{'2026-10-16':1}}
+        with tempfile.TemporaryDirectory(dir='.') as tmp:
+            st=Store(Path(tmp)/'s.sqlite')
+            report=Supervisor(['S'+str(i) for i in range(50)],st,{'verified':True,'year':2026},provider=lambda *args:frames).tick(now)
+            self.assertFalse(any(a['status']=='UNAVAILABLE' for a in report['agents']))
+            with st.connect() as db:self.assertEqual(db.execute('SELECT COUNT(DISTINCT symbol) FROM history').fetchone()[0],50)

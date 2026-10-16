@@ -7,6 +7,9 @@ def retain(store,symbol,frames,now,cfg):
     reset=frames.get('_quality',{}).get('corporate_action_reset')
     repaired=dict(frames);meta={}
     with store.connect() as db:
+        # Reserve the writer before reading metadata, avoiding concurrent
+        # read-to-write upgrades and per-agent schema changes.
+        db.execute('BEGIN IMMEDIATE')
         for tf,step in [('5m',5),('1d',1440)]:
             cached={b.t:b for b in [Bar(datetime.fromisoformat(t),o,h,l,c,v) for t,o,h,l,c,v in db.execute('SELECT stamp,o,h,l,c,v FROM history WHERE symbol=? AND timeframe=?',(symbol,tf))]}
             # A new dividend can revise every adjustment factor. Never combine an
@@ -17,7 +20,6 @@ def retain(store,symbol,frames,now,cfg):
             if adjusted:
                 basis=frames.get('_quality',{}).get('adjustment_factors',{})
                 identity=json.dumps(basis,sort_keys=True)
-                db.execute('CREATE TABLE IF NOT EXISTS history_basis(symbol TEXT PRIMARY KEY,identity TEXT)')
                 old=db.execute('SELECT identity FROM history_basis WHERE symbol=?',(symbol,)).fetchone()
                 try:previous_basis=json.loads(old[0]) if old else None
                 except ValueError:previous_basis=None
