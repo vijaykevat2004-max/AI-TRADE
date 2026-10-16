@@ -52,6 +52,7 @@ def replay(symbol, frames, as_of, cfg, engine=evaluate):
             continue
         seen.add(decision['id'])
         safe = {k: v for k, v in decision.items() if k not in ('evidence', 'structure_15m_pivots')}
+        safe['research_input_hash'] = digest(dict(bars=bars[:i+1], daily=[b for b in frames.get('1d',[]) if b.t.date()<bar.t.date()], config=cfg))
         record = dict(id=decision['id'], symbol=symbol, signal=safe,
                       status='ENTRY_PENDING', result=None, is_paper=True,
                       execution_enabled=False)

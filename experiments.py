@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 import argparse
 import json
+from dataclasses import asdict
 from liquidity.kernel import IST, digest
 from liquidity.runtime import config, source
 from liquidity.experiments import policies, replay, aggregate
@@ -18,6 +19,7 @@ def main():
     parser.add_argument('--publish', action='store_true')
     args = parser.parse_args()
     now = datetime.now(IST)
+    Path('reports').mkdir(exist_ok=True)
     symbols, manifest = universe()
     if args.symbols:
         if any(s not in symbols for s in args.symbols):
@@ -27,6 +29,8 @@ def main():
     def inspect(symbol):
         try:
             frames = source(symbol, now, config())
+            frozen = {k: [asdict(b) for b in frames[k]] for k in ('5m','1d')}
+            Path('reports/experiment-source-' + symbol.replace('&','_') + '.json').write_text(json.dumps(dict(observed_at=now.isoformat(),frames=frozen,quality=frames.get('_quality',{})),default=str))
             return {name: replay(symbol, frames, now, cfg, evaluate_trend if name=='opening_range_trend' else evaluate) for name, cfg in variants.items()}
         except Exception as exc:
             return {name: dict(symbol=symbol, error=str(exc)[:200]) for name in variants}
@@ -34,10 +38,16 @@ def main():
         rows = list(pool.map(inspect, symbols))
     results = {name: [r[name] for r in rows] for name in variants}
     summaries = {name: aggregate(value) for name, value in results.items()}
+    examples = []
+    for name, values in results.items():
+        for row in values:
+            for trade in row.get('trades', []):
+                signal = trade['signal']
+                examples.append(dict(policy=name,symbol=trade['symbol'],status=trade['status'],result=trade.get('result'),signal_close=signal['bar_close_time'],entry=trade.get('paper_entry'),entry_at=trade.get('paper_entry_at'),stop=signal['stop'],target=signal['targets'][0],exit=trade.get('exit_reference'),exit_reason=trade.get('exit_reason'),net_r=trade.get('net_r'),research_input_hash=signal['research_input_hash'],classification='RETROSPECTIVE_NOT_LIVE_CAPTURED'))
     report = dict(collected_at=now.isoformat(), requested=len(symbols),
                   universe_hash=manifest, active_config_hash=digest(config()),
                   mode='SAME_5M_KERNEL_SHADOW_COMPARISON', execution_enabled=False,
-                  active_policy_changed=False, summaries=summaries, results=results,
+                  active_policy_changed=False, summaries=summaries, results=results,examples=examples[:100],examples_total=len(examples),
                   limitations=['Best-effort revised source; not point-in-time evidence',
                                'Bounded available history; no years claim',
                                'No independent holdout or auto-promotion',
