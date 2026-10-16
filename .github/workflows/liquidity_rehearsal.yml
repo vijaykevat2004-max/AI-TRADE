@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 43f908ac3084dc6c633a811df11b8bd7ba339a25
+          ref: d5ae8557ffc1249da5dcad6e9891e05e6d821312
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -43,6 +43,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python research.py --publish
+      - name: Same five-minute kernel shadow comparison
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.schedule == '23 12 * * *'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python experiments.py --publish
       - uses: actions/cache/save@v4
         if: always()
         with:
