@@ -1,6 +1,6 @@
 {
   "strategy_id": "jadecap_nse_liquidity_v1",
-  "strategy_version": "0.1.2",
+  "strategy_version": "0.2.0",
   "rule_set": "PROPOSED_NSE_WINDOW_A",
   "timezone": "Asia/Kolkata",
   "source_mode": "DELAYED_REHEARSAL",
@@ -8,7 +8,8 @@
   "production_enabled": false,
   "notifications_enabled": false,
   "execution_enabled": false,
-  "pivot_left": 2, "pivot_right": 2,
+  "pivot_left": 2,
+  "pivot_right": 2,
   "daily_lookback": 60,
   "tick_size": 0.05,
   "sweep_buffer_ticks": 2,
@@ -23,9 +24,15 @@
   "max_chase_atr": 1.5,
   "finalization_seconds": 90,
   "max_feed_age_seconds": 1200,
-  "entry_window": ["09:30", "11:30"],
+  "entry_window": [
+    "09:30",
+    "11:30"
+  ],
   "expiry": "15:20",
-  "confirmation": ["MSS", "FVG"],
+  "confirmation": [
+    "MSS",
+    "FVG"
+  ],
   "turtle_soup_enabled": false,
   "breaker_block": "DISABLED_UNSPECIFIED",
   "example_1h_variant": false,
@@ -34,5 +41,7 @@
     "daily_bias_and_liquidity_raid": "SOURCE",
     "all_numeric_parameters_and_objective_formulas": "PROPOSED_NSE",
     "entry_window_costs_rr_and_chase": "EXPERIMENTAL"
-  }
+  },
+  "daily_price_basis": "PROVIDER_ADJUSTED",
+  "intraday_context_policy": "LATEST_CLEAN_PRIOR_SEGMENT"
 }

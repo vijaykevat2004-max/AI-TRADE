@@ -37,6 +37,22 @@ def bounded_context(bars,now,cfg):
     No signal can use dropped bars; current opening/session continuity stays required.
     """
     today=now.astimezone(IST).date();cut=0
+    if cfg.get('intraday_context_policy')=='LATEST_CLEAN_PRIOR_SEGMENT':
+        current=[b for b in bars if b.t.astimezone(IST).date()==today]
+        chunks=[];chunk=[]
+        for b in [b for b in bars if b.t.astimezone(IST).date()<today]:
+            try:validate([b],5,now-timedelta(seconds=cfg['finalization_seconds']))
+            except ValueError:
+                if chunk:chunks.append(chunk)
+                chunk=[];continue
+            if chunk and (b.t.date()!=chunk[-1].t.date() or b.t-chunk[-1].t!=timedelta(minutes=5)):
+                chunks.append(chunk);chunk=[]
+            chunk.append(b)
+        if chunk:chunks.append(chunk)
+        eligible=[c for c in chunks if len(c)>=20]
+        seed=eligible[-1] if eligible else []
+        selected=seed+current
+        return selected,dict(context_policy='LATEST_CLEAN_PRIOR_SEGMENT_PLUS_FULL_CURRENT_SESSION',excluded_prior_bars=len(bars)-len(selected),context_start=selected[0].t.isoformat() if selected else None,seed_bars=len(seed),seed_end=seed[-1].t.isoformat() if seed else None,current_session_faults_removed=False,missing_bars_filled=False)
     for i,b in enumerate(bars):
         if b.t.astimezone(IST).date()>=today:break
         try:validate([b],5,now-timedelta(seconds=cfg['finalization_seconds']))

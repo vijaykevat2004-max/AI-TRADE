@@ -40,3 +40,12 @@ class HistoryTests(unittest.TestCase):
             report=Supervisor(['S'+str(i) for i in range(50)],st,{'verified':True,'year':2026},provider=lambda *args:frames,prepare_closed=True).tick(now)
             self.assertEqual(report['signals'],[])
             self.assertTrue(all(a['status']=='MARKET_CLOSED' and a['history_preparation']['status']=='PREPARED' for a in report['agents']))
+    def test_adjustment_revision_drops_cached_price_basis(self):
+        now,frames=self.fixture()
+        with tempfile.TemporaryDirectory(dir='.') as tmp:
+            st=Store(Path(tmp)/'s.sqlite')
+            frames['_quality']={'daily_price_basis':'PROVIDER_ADJUSTED','adjustment_factors':{'2026-10-16':1}}
+            retain(st,'TEST',frames,now,config())
+            new={'5m':[],'1d':[],'_quality':{'daily_price_basis':'PROVIDER_ADJUSTED','adjustment_factors':{'2026-10-16':0.9}}}
+            out=retain(st,'TEST',new,now,config())
+            self.assertEqual(out['5m'],[]);self.assertEqual(out['1d'],[])

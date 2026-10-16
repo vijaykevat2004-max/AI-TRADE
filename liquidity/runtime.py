@@ -90,17 +90,32 @@ class GitHubNotifications:
 
 def source(symbol,now,cfg):
     import yfinance as yf
+    import math
     ticker=yf.Ticker(symbol+'.NS')
     frames={'5m':ticker.history(period='5d',interval='5m',auto_adjust=False,actions=True,raise_errors=True,timeout=20),'1d':ticker.history(period='6mo',interval='1d',auto_adjust=False,actions=True,raise_errors=True,timeout=20)}
+    daily_recovery=[]
+    if cfg.get('daily_price_basis')=='PROVIDER_ADJUSTED':
+        from .nse_daily import recover
+        frames['1d'],daily_recovery=recover(frames['1d'],frames['5m'],symbol,now,cfg)
     # Use a documented bounded window, not unrelated six-month action history.
     # Reset BOTH streams after the most recent action. Never invent adjusted bars.
     daily=frames['1d'].sort_index().tail(cfg['daily_lookback'])
-    action_dates=[stamp.date() for stamp,row in daily.iterrows() if any(col in daily and float(row[col] or 0)!=0 for col in ('Stock Splits','Dividends'))]
+    adjusted=cfg.get('daily_price_basis')=='PROVIDER_ADJUSTED'
+    basis={}
+    action_dates=[stamp.date() for stamp,row in daily.iterrows() if any(col in daily and float(row[col] or 0)!=0 for col in (('Stock Splits',) if adjusted else ('Stock Splits','Dividends')))]
     reset=max(action_dates) if action_dates else None
+    if adjusted:
+        f=frames['1d'].copy()
+        if 'Adj Close' not in f:raise ValueError('ADJUSTED_DAILY_SOURCE_MISSING')
+        ratio=f['Adj Close']/f['Close']
+        if any(not math.isfinite(float(r)) or r<=0 for r in ratio):raise ValueError('ADJUSTED_DAILY_RATIO_INVALID')
+        basis={stamp.date():float(r) for stamp,r in ratio.items()}
+        for col in ('Open','High','Low','Close'):f[col]=f[col]*ratio
+        frames['1d']=f
     if reset:
         # Intraday opening on the effective date is already in the new regime.
         # Daily context still requires fully post-action completed sessions.
-        frames={tf:f[[stamp.date()>=reset if tf=='5m' else stamp.date()>reset for stamp in f.index]] for tf,f in frames.items()}
+        frames={tf:f if tf=='1d' and adjusted else f[[stamp.date()>=reset if tf=='5m' else stamp.date()>reset for stamp in f.index]] for tf,f in frames.items()}
     intraday=frames['5m'].sort_index()
     used_dates=sorted({stamp.date() for stamp in intraday.index})[-3:]
     frames['5m']=intraday[[stamp.date() in used_dates for stamp in intraday.index]]
@@ -114,18 +129,27 @@ def source(symbol,now,cfg):
             t=stamp.to_pydatetime().astimezone(IST)
             if tf=='1d' and t.date()>=now.astimezone(IST).date():continue
             if tf=='5m' and t+timedelta(minutes=5,seconds=cfg['finalization_seconds'])>now:continue
-            out.append(Bar(t,*[float(row[k]) for k in ('Open','High','Low','Close','Volume')]))
+            factor=(1.0 if t.date()==now.astimezone(IST).date() else basis.get(t.date())) if adjusted and tf=='5m' else 1.0
+            if factor is None:raise ValueError('MISSING_INTRADAY_ADJUSTMENT_BASIS')
+            out.append(Bar(t,*[float(row[k])*factor for k in ('Open','High','Low','Close')],float(row['Volume'])))
         result[tf]=out[-cfg['daily_lookback']:] if tf=='1d' else out
     try:validate(result['5m'],5,now-timedelta(seconds=cfg['finalization_seconds']))
     except ValueError:
         from .feed import reconcile
         minute=ticker.history(period='5d',interval='1m',auto_adjust=False,actions=True,raise_errors=True,timeout=20)
         if minute.empty or minute.index.tz is None or minute.index.has_duplicates:raise ValueError('INVALID_1M_RECONCILIATION_SOURCE')
-        rows=[Bar(stamp.to_pydatetime().astimezone(IST),*[float(row[k]) for k in ('Open','High','Low','Close','Volume')]) for stamp,row in minute.sort_index().iterrows() if stamp.date() in used_dates and (not reset or stamp.date()>=reset)]
+        rows=[]
+        for stamp,row in minute.sort_index().iterrows():
+            if stamp.date() not in used_dates or (reset and stamp.date()<reset):continue
+            factor=(1.0 if stamp.date()==now.astimezone(IST).date() else basis.get(stamp.date())) if adjusted else 1.0
+            if factor is None:raise ValueError('MISSING_MINUTE_ADJUSTMENT_BASIS')
+            rows.append(Bar(stamp.to_pydatetime().astimezone(IST),*[float(row[k])*factor for k in ('Open','High','Low','Close')],float(row['Volume'])))
         result['5m'],result['_quality']=reconcile(result['5m'],rows,now,cfg)
     from .feed import bounded_context
     result['5m'],context=bounded_context(result['5m'],now,cfg)
     result['_quality']=dict(result.get('_quality',{}),**context)
+    if adjusted:result['_quality'].update(daily_price_basis='PROVIDER_ADJUSTED',intraday_price_basis='SAME_DAILY_FACTOR_CURRENT_DAY_UNADJUSTED',adjustment_factors={str(day):factor for day,factor in basis.items() if day in used_dates})
+    if daily_recovery:result['_quality']['official_daily_recovery']=daily_recovery
     if reset:result['_quality']['corporate_action_reset']=str(reset)
     return result
 

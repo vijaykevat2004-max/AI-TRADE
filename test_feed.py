@@ -41,6 +41,32 @@ class FeedTests(unittest.TestCase):
         daily=pd.DataFrame(dict(Open=[100,100],High=[102,102],Low=[99,99],Close=[101,101],Volume=[100,100],Dividends=[0,12]),index=pd.date_range('2026-10-15',periods=2,tz=IST))
         with patch('yfinance.Ticker') as ticker:
             ticker.return_value.history.side_effect=[intraday,daily]
-            frames=source('TEST',now,config())
+            frames=source('TEST',now,dict(config(),daily_price_basis='RAW_POST_ACTION'))
         self.assertEqual(len(frames['5m']),20);self.assertEqual(frames['1d'],[])
         self.assertEqual(evaluate('TEST',now,frames,config())['status'],'WARMUP')
+    def test_historical_seed_does_not_fill_prior_or_current_gaps(self):
+        t=datetime(2026,10,15,10,tzinfo=IST);now=t+timedelta(days=1,hours=2)
+        seed=[Bar(t+timedelta(minutes=5*i),100,102,99,101,100) for i in range(25)]
+        bad=Bar(seed[-1].t+timedelta(minutes=5),100,102,99,101,0)
+        current=[Bar(now.replace(hour=9,minute=15),100,102,99,101,100),Bar(now.replace(hour=9,minute=25),100,102,99,101,100)]
+        out,q=bounded_context(seed+[bad]+current,now,config())
+        self.assertEqual(out,seed+current);self.assertEqual(q['seed_bars'],25)
+        from liquidity.kernel import validate
+        with self.assertRaisesRegex(ValueError,'GAP_IN_SESSION'):validate(out,5,now)
+    def test_adjusted_daily_and_intraday_share_provider_basis(self):
+        import pandas as pd
+        from unittest.mock import patch
+        from liquidity.runtime import source
+        now=datetime(2026,10,16,11,30,tzinfo=IST)
+        dates=pd.date_range('2026-09-01',periods=46,tz=IST)
+        daily=pd.DataFrame(dict(Open=100,High=102,Low=99,Close=100,Volume=100,Dividends=0,**{'Stock Splits':0,'Adj Close':90}),index=dates)
+        daily.loc[dates[-1],'Adj Close']=100;daily.loc[dates[-1],'Dividends']=10
+        prior=pd.date_range('2026-10-15 09:15',periods=25,freq='5min',tz=IST)
+        today=pd.date_range('2026-10-16 09:15',periods=20,freq='5min',tz=IST)
+        intraday=pd.DataFrame(dict(Open=100,High=102,Low=99,Close=100,Volume=100),index=prior.append(today))
+        with patch('yfinance.Ticker') as ticker:
+            ticker.return_value.history.side_effect=[intraday,daily]
+            frames=source('TEST',now,config())
+        self.assertEqual(frames['1d'][-1].c,90);self.assertEqual(frames['5m'][0].c,90)
+        self.assertEqual(frames['5m'][-1].c,100)
+        self.assertEqual(frames['_quality']['daily_price_basis'],'PROVIDER_ADJUSTED')
