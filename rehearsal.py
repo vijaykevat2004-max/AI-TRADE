@@ -36,7 +36,7 @@ def main():
         raise
     store=Store(a.db)
     Path('reports/universe.json').write_text(json.dumps(dict(symbols=symbols,sha256=manifest_hash,fetched_at=now.isoformat()),indent=2))
-    supervisor=Supervisor(symbols,store,load_calendar(now))
+    supervisor=Supervisor(symbols,store,load_calendar(now),prepare_closed=True)
     from liquidity.paper import restore_journal,sync_journal
     gh=GitHub() if a.publish_health else None
     issues=gh.issues() if gh else []
@@ -47,6 +47,7 @@ def main():
         report=supervisor.tick(now)
         report['universe']=dict(UNIVERSE_EVIDENCE)
         report['coverage']=dict(requested=50,current_feed_observed=sum(a.get('current_feed',{}).get('status')=='OBSERVED' for a in report['agents']),strategy_history_ready=sum(a['status'] not in ('UNAVAILABLE','STALE_FEED','WARMUP','CALENDAR_UNKNOWN','MARKET_CLOSED') for a in report['agents']),warmup=sum(a['status']=='WARMUP' for a in report['agents']),meaning='Observed feed is a validated recent closed bar; strategy history additionally requires complete context. Neither implies real-time or certified production.')
+        report['coverage'].update(history_prepared=sum(a.get('history_preparation',{}).get('status')=='PREPARED' for a in report['agents']),history_pending=sum(a.get('history_preparation',{}).get('status')=='DATA_PENDING' for a in report['agents']))
         if a.paper_followup:
             from liquidity.paper import records,update_symbol,summary
             from liquidity.runtime import source

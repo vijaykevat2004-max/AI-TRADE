@@ -32,6 +32,7 @@ class Store:
                 if name not in columns:db.execute('ALTER TABLE outbox ADD COLUMN '+name+' '+definition)
             db.execute('CREATE TABLE IF NOT EXISTS deliveries(id INTEGER PRIMARY KEY, event_id TEXT, at TEXT, outcome TEXT, detail TEXT)')
             db.execute('CREATE TABLE IF NOT EXISTS paper(id TEXT PRIMARY KEY,symbol TEXT NOT NULL,record TEXT NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS history(symbol TEXT,timeframe TEXT,stamp TEXT,o REAL,h REAL,l REAL,c REAL,v REAL,observed_at TEXT,PRIMARY KEY(symbol,timeframe,stamp))')
     @contextmanager
     def connect(self):
         db=sqlite3.connect(self.path,timeout=20)
@@ -129,19 +130,31 @@ def source(symbol,now,cfg):
     return result
 
 class Supervisor:
-    def __init__(self,symbols,store,calendar,provider=source):
+    def __init__(self,symbols,store,calendar,provider=source,prepare_closed=False):
         if len(symbols)!=50 or len(set(symbols))!=50:raise ValueError('REQUIRE_EXACTLY_50_SYMBOLS')
         self.symbols=symbols;self.store=store;self.calendar=calendar;self.provider=provider
+        self.prepare_closed=prepare_closed
     def tick(self,now):
         cfg=config(); previous=self.store.states(); market=session(now,self.calendar)
         def agent(symbol):
             old=previous.get(symbol,{})
             base=dict(symbol=symbol,heartbeat=now.isoformat(),market_state=market,strategy_id=cfg['strategy_id'],decision='NO_TRADE',status=market,last_bar_close=old.get('last_bar_close'),watermark=old.get('watermark'),failures=old.get('failures',0))
-            if market!='OPEN':return base
+            if market!='OPEN' and not self.prepare_closed:return base
             if old.get('retry_at') and datetime.fromisoformat(old['retry_at'])>now:
                 return dict(base,status='UNAVAILABLE',reason_codes=['BACKOFF'],retry_at=old['retry_at'])
             try:
                 bars=self.provider(symbol,now,cfg)
+                from .history import retain
+                bars=retain(self.store,symbol,bars,now,cfg)
+                context_ready=False
+                try:
+                    validate(bars['5m'],5,now-timedelta(seconds=cfg['finalization_seconds']))
+                    validate(bars['1d'],1440,now)
+                    context_ready=len(bars['5m'])>=20 and len(bars['1d'])>=20
+                except ValueError:pass
+                base['history_preparation']=dict(status='PREPARED' if context_ready else 'DATA_PENDING',intraday_bars=len(bars['5m']),daily_bars=len(bars['1d']),required_intraday=20,required_daily=20,persisted=True)
+                if market!='OPEN':
+                    return dict(base,status=market,decision='NO_TRADE',feed_reconciliation=bars.get('_quality',{}),reason_codes=['OFF_HOURS_HISTORY_PREPARED' if context_ready else 'OFF_HOURS_HISTORY_INCOMPLETE'])
                 decision=evaluate(symbol,now,bars,cfg)
                 if '_quality' in bars:decision['feed_reconciliation']=bars['_quality']
                 latest=bars['5m'][-1] if bars['5m'] else None
