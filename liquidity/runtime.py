@@ -101,7 +101,7 @@ class GitHubNotifications:
         self.github.create(title,'DELAYED PAPER RESEARCH. No orders.\n\n```json\n'+json.dumps(safe,indent=2,default=str)+'\n```')
         self.ledger.add(title)
 
-def source(symbol,now,cfg):
+def _source(symbol,now,cfg):
     import yfinance as yf
     import math
     ticker=yf.Ticker(symbol+'.NS')
@@ -166,6 +166,12 @@ def source(symbol,now,cfg):
     if reset:result['_quality']['corporate_action_reset']=str(reset)
     return result
 
+from .provider_gate import ProviderGate
+_provider_gate=ProviderGate()
+
+def source(symbol,now,cfg):
+    return _provider_gate.fetch(lambda:_source(symbol,now,cfg))
+
 class Supervisor:
     def __init__(self,symbols,store,calendar,provider=source,prepare_closed=False):
         if len(symbols)!=50 or len(set(symbols))!=50:raise ValueError('REQUIRE_EXACTLY_50_SYMBOLS')
@@ -179,10 +185,13 @@ class Supervisor:
             if market!='OPEN' and not self.prepare_closed:return base
             if old.get('retry_at') and datetime.fromisoformat(old['retry_at'])>now:
                 return dict(base,status='UNAVAILABLE',reason_codes=['BACKOFF'],retry_at=old['retry_at'])
+            phase='PROVIDER_FETCH'
             try:
                 bars=self.provider(symbol,now,cfg)
+                phase='HISTORY_PERSISTENCE'
                 from .history import retain
                 bars=retain(self.store,symbol,bars,now,cfg)
+                phase='STRATEGY_EVALUATION'
                 context_ready=False
                 try:
                     validate(bars['5m'],5,now-timedelta(seconds=cfg['finalization_seconds']))
@@ -225,10 +234,11 @@ class Supervisor:
                 # Same prefix may be evaluated again, but a signal already persisted is not resent.
                 base.update({k:v for k,v in decision.items() if k not in ('evidence','evidence_canonical')},watermark=decision.get('last_bar_close'),failures=0)
                 from .paper import update_symbol
+                phase='PAPER_FOLLOWUP'
                 update_symbol(self.store,symbol,bars['5m'],now,cfg)
             except Exception as e:
                 count=base['failures']+1
-                base.update(status='UNAVAILABLE',decision='NO_TRADE',failures=count,reason_codes=[str(e)[:160]],retry_at=(now+timedelta(seconds=min(900,30*2**min(count,5)))).isoformat())
+                base.update(status='UNAVAILABLE',decision='NO_TRADE',failures=count,failure_phase=phase,reason_codes=[str(e)[:160]],retry_at=(now+timedelta(seconds=min(900,30*2**min(count,5)))).isoformat())
             return base
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             futures=[pool.submit(agent,symbol) for symbol in self.symbols]
