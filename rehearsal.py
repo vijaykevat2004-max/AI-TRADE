@@ -4,6 +4,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import threading
+import subprocess
 import time
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from liquidity.kernel import IST
@@ -35,6 +36,10 @@ def main():
             gh=GitHub();gh.health(failure,gh.issues())
         raise
     store=Store(a.db)
+    try:
+        code_revision=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+        code_dirty=bool(subprocess.check_output(['git','status','--porcelain'],text=True).strip())
+    except (OSError,subprocess.CalledProcessError):code_revision='UNVERIFIED';code_dirty=None
     Path('reports/universe.json').write_text(json.dumps(dict(symbols=symbols,sha256=manifest_hash,fetched_at=now.isoformat()),indent=2))
     supervisor=Supervisor(symbols,store,load_calendar(now),prepare_closed=True)
     from liquidity.paper import restore_journal,sync_journal
@@ -45,6 +50,8 @@ def main():
     while True:
         now=datetime.now(IST);supervisor.calendar=load_calendar(now)
         report=supervisor.tick(now)
+        report['code_revision']=code_revision
+        report['working_tree_dirty']=code_dirty
         report['universe']=dict(UNIVERSE_EVIDENCE)
         report['coverage']=dict(requested=50,current_feed_observed=sum(a.get('current_feed',{}).get('status')=='OBSERVED' for a in report['agents']),strategy_history_ready=sum(a['status'] not in ('UNAVAILABLE','STALE_FEED','WARMUP','CALENDAR_UNKNOWN','MARKET_CLOSED') for a in report['agents']),warmup=sum(a['status']=='WARMUP' for a in report['agents']),meaning='Observed feed is a validated recent closed bar; strategy history additionally requires complete context. Neither implies real-time or certified production.')
         report['coverage'].update(history_prepared=sum(a.get('history_preparation',{}).get('status')=='PREPARED' for a in report['agents']),history_pending=sum(a.get('history_preparation',{}).get('status')=='DATA_PENDING' for a in report['agents']))

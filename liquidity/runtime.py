@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import json
 from pathlib import Path
 import sqlite3
+import threading
 import time
 from .kernel import Bar, IST, evaluate, digest,validate
 
@@ -23,9 +24,14 @@ def session(now, calendar):
     return 'OPEN'
 
 class Store:
+    _registry_lock=threading.Lock()
+    _database_locks={}
     def __init__(self,path):
         self.path=str(path)
+        with self._registry_lock:
+            self._lock=self._database_locks.setdefault(str(Path(path).resolve()),threading.RLock())
         with self.connect() as db:
+            db.execute('PRAGMA journal_mode=WAL')
             db.executescript('CREATE TABLE IF NOT EXISTS agents(symbol TEXT PRIMARY KEY, state TEXT NOT NULL); CREATE TABLE IF NOT EXISTS outbox(id TEXT PRIMARY KEY, payload TEXT NOT NULL, sent INTEGER DEFAULT 0, attempts INTEGER DEFAULT 0, error TEXT);')
             columns={row[1] for row in db.execute('PRAGMA table_info(outbox)')}
             for name,definition in [('next_try','TEXT'),('status',"TEXT DEFAULT 'PENDING'")]:
@@ -36,10 +42,13 @@ class Store:
             db.execute('CREATE TABLE IF NOT EXISTS history_basis(symbol TEXT PRIMARY KEY,identity TEXT)')
     @contextmanager
     def connect(self):
-        db=sqlite3.connect(self.path,timeout=20)
-        try:
-            with db:yield db
-        finally:db.close()
+        # All callers, including paper/outbox/actor writes, share one gate per
+        # database. Network fetches and strategy calculations stay parallel.
+        with self._lock:
+            db=sqlite3.connect(self.path,timeout=30)
+            try:
+                with db:yield db
+            finally:db.close()
     def states(self):
         with self.connect() as db:return {s:json.loads(v) for s,v in db.execute('SELECT symbol,state FROM agents')}
     def save(self,state):
