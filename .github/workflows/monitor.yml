@@ -41,6 +41,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: python research.py --publish
+      - name: Same five-minute kernel shadow comparison
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 12 * * *'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python experiments.py --publish
       - uses: actions/cache/save@v4
         if: always()
         with:
